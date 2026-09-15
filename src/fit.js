@@ -93,7 +93,10 @@
     return ranked.sort(function (a, b) { return a.score - b.score; });
   }
 
-  var dimmed = [], active = false, btn = null, snapped = false, lastSlots = 0, lastSnaps = 0;
+  var dimmed = [], active = false, btn = null, snapped = false, lastSlots = 0, lastSnaps = 0, lastFail = '';
+
+  // Remember why the last click did nothing, so the button can say so instead of a generic hint.
+  function fail(msg) { lastFail = msg; console.warn('jigexFit: ' + msg); }
 
   function restore() {
     dimmed.forEach(function (p) { if (!p.isDisposed) p.opacity = 1; });
@@ -105,11 +108,11 @@
     var u = util(), pz = u.getPuzzle();
     if (!pz || !pz.isReady()) return null;
     var all = u.pieces(pz), c = u.collectUnits(pz);
-    if (!c.mainGroup) { console.warn('jigexFit: nothing assembled yet'); return null; }
+    if (!c.mainGroup) { fail('Join 2 pieces first'); return null; }
     var main = c.mainGroup.members, core = main[0].spec.core, canvas = document.getElementById('jigex-canvas');
     // movable = every piece outside the assembly; units = the same pieces as singles / small groups (candidates)
     var movable = all.filter(function (p) { return p.group !== c.mainGroup && p.state && p.state.name === 'resting'; });
-    if (!movable.length) { console.warn('jigexFit: no loose pieces left'); return null; }
+    if (!movable.length) { fail('No loose pieces left'); return null; }
     return { u: u, pz: pz, all: all, main: main, movable: movable, units: c.units, subj: c.subj, W: canvas.width, H: canvas.height,
       slots: findSlots(main, core.width, core.height), pitch: core.width,
       cellW: Math.max.apply(null, movable.map(function (p) { return p.width; })) + u.CELL_PAD,
@@ -189,7 +192,7 @@
       var d = (s.x - x) * (s.x - x) + (s.y - y) * (s.y - y);
       if (d < bd) { bd = d; slot = s; }
     });
-    if (!slot || bd > sc.pitch * sc.pitch) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
+    if (!slot || bd > sc.pitch * sc.pitch) { fail('Click right next to a gap'); return 0; }
     var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
     snapped = !(opts && opts.snap === false) && top.some(function (cand) { return trySnap(sc, cand, slot); });
     if (snapped) { restore(); return 1; }
@@ -276,12 +279,12 @@
       var cc = coreCentre(p), core = p.spec.core;
       return Math.abs(cc.x - x) < core.width / 2 && Math.abs(cc.y - y) < core.height / 2;
     });
-    snapped = false; lastSnaps = 0;
+    snapped = false; lastSnaps = 0; lastFail = '';
     var n = onAssembly ? frontier(x, y) : fitAt(x, y);
     if (!btn) return;
     var rest = n ? n + ' candidates' + (onAssembly ? ' for ' + lastSlots + ' gaps' : '') : '';
     btn.textContent = snapped ? '✅ ' + (onAssembly ? lastSnaps + ' snapped' : 'Snapped in!') + (rest ? ', ' + rest : '') + ' (Esc)'
-      : n ? '🎯 ' + rest + ' (Esc)' : '🎯 Click a gap or the assembly';
+      : n ? '🎯 ' + rest + ' (Esc)' : '🎯 ' + (lastFail || 'Click a gap or the assembly');
   }
 
   function setActive(on, button) {
