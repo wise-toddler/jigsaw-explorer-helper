@@ -15,6 +15,9 @@ piece objects, so everything it moves is a normal move: saving, undo and multipl
 | 🃏 **Deal** | Spreads the deck of the piece you last picked up, as a gradient, around where the deck sits. |
 | 🎯 **Fit** | Click an empty spot beside the assembly: loose pieces and small groups are filtered by shape (a tab must meet a hole, border sides must match; skipped when rotation is on) and ranked by how well their edge colours continue the neighbours'. A group is tried through each of its members, and only counts if the rest of the group would land on empty squares. The best 8 are pulled next to the slot, the rest are dimmed. Click the assembly itself instead and the best 3 candidates for *every* open slot gather around its rim while everything else is parked outside a keep-out ring. `Esc` exits. |
 
+Keyboard: `Alt+G` Gradient, `Alt+P` Piles, `Alt+M` Magnet, `Alt+S` Stack, `Alt+D` Deal, `Alt+F` Fit
+(Option on macOS). Plain letters are left to the player's own shortcuts.
+
 The largest joined cluster is treated as the assembly and never moves; every other piece or
 group (any size) is movable.
 

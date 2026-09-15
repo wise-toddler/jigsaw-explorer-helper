@@ -49,6 +49,15 @@ test('occupied marks cells per piece, so the notch of an L-shaped assembly stays
   assert.ok(free > o.rows * o.cols / 2, 'most of the table stays free');
 });
 
+test('subject reads the shared image once and caches it on the canvas', () => {
+  const P = makePuzzle({ rows: 2, cols: 2 });
+  let reads = 0;
+  const canvas = P.subject, img = canvas.getContext().getImageData();
+  canvas.getContext = () => ({ getImageData: () => { reads++; return img; } });
+  assert.equal(U.subject(P.pieces[0]), U.subject(P.pieces[3]));
+  assert.equal(reads, 1);
+});
+
 test('span: singles take one cell, groups span by their real size', () => {
   assert.deepEqual(U.span({ single: true, w: 500, h: 500 }, 50, 50, 20, 20), { cw: 1, ch: 1 });
   assert.deepEqual(U.span({ single: false, w: 96, h: 56 }, 56, 56, 20, 20), { cw: 2, ch: 1 });

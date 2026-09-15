@@ -20,10 +20,13 @@
     return groups[0] || null;
   }
 
-  // Pixel data of the shared subject image (every piece's spec.image.data is the same canvas).
+  // Pixel data of the shared subject image (every piece's spec.image.data is the same canvas). Read once and
+  // cached on the canvas: the picture never changes mid-game, and repeated readbacks are slow and noisy.
   function subject(piece) {
-    var sc = piece.spec.image.data;
-    return sc.getContext('2d').getImageData(0, 0, sc.width, sc.height);
+    var sc = piece.spec.image.data, key = sc.width + 'x' + sc.height;
+    if (!sc._jigexSubject || sc._jigexSubject.key !== key)
+      sc._jigexSubject = { key: key, data: sc.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, sc.width, sc.height) };
+    return sc._jigexSubject.data;
   }
 
   // Average colour of a piece's core (body without tabs) sampled from the shared subject image.
