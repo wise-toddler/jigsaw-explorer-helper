@@ -90,21 +90,24 @@
     var all = u.pieces(pz), mainGroup = u.mainGroup(all);
     if (!mainGroup) { console.warn('jigexFit: nothing assembled yet'); return null; }
     var main = mainGroup.members, core = main[0].spec.core, canvas = document.getElementById('jigex-canvas');
-    var loose = all.filter(function (p) { return !p.group && p.state && p.state.name === 'resting'; });
-    return { u: u, pz: pz, all: all, main: main, loose: loose, subj: u.subject(main[0]), W: canvas.width, H: canvas.height,
+    // movable = everything outside the assembly (small groups included); loose = the singles that can be candidates
+    var movable = all.filter(function (p) { return p.group !== mainGroup && p.state && p.state.name === 'resting'; });
+    var loose = movable.filter(function (p) { return !p.group; });
+    return { u: u, pz: pz, all: all, main: main, movable: movable, loose: loose, subj: u.subject(main[0]), W: canvas.width, H: canvas.height,
       slots: findSlots(main, core.width, core.height), pitch: core.width,
       cellW: Math.max.apply(null, loose.map(function (p) { return p.width; })) + u.CELL_PAD,
       cellH: Math.max.apply(null, loose.map(function (p) { return p.height; })) + u.CELL_PAD };
   }
 
   // Move each candidate piece to the free cell nearest its slot (claimed in grid `o`); returns the cells taken.
-  function pullToSlots(sc, picks, o, animate) {
+  // Moves are instant: an animated move can stall mid-tween while the game is idle, leaving the piece behind.
+  function pullToSlots(sc, picks, o) {
     var taken = [];
     picks.forEach(function (k) {
       var unit = sc.u.makeUnit([k.piece], sc.subj);
       if (!sc.u.nearestCell(unit, [{ x: k.slot.x, y: k.slot.y }], o, sc.cellW, sc.cellH)) return;
       k.piece.raise();
-      k.piece.move(unit.cell.x, unit.cell.y, { animate: animate, aniInterval: 500 });
+      k.piece.move(unit.cell.x, unit.cell.y);
       taken.push({ position: unit.cell, width: sc.cellW, height: sc.cellH });
     });
     return taken;
@@ -127,8 +130,8 @@
     var top = rankCandidates(slot, sc.loose, sc.subj, sc.pz).slice(0, TOP_N).map(function (r) { return r.piece; });
     restore();
     var o = sc.u.occupied(sc.all.filter(function (p) { return top.indexOf(p) < 0; }), sc.W, sc.H, sc.cellW, sc.cellH);
-    pullToSlots(sc, top.map(function (p) { return { piece: p, slot: slot }; }), o, true);
-    dimExcept(sc.loose, top);
+    pullToSlots(sc, top.map(function (p) { return { piece: p, slot: slot }; }), o);
+    dimExcept(sc.movable, top);
     return top.length;
   }
 
@@ -147,25 +150,24 @@
     var picks = Array.from(best.values()).sort(function (a, b) { return a.score - b.score; });
     var chosen = picks.map(function (k) { return k.piece; });
     restore();
-    var animate = sc.loose.length <= 200;
     var o = sc.u.occupied(sc.main, sc.W, sc.H, sc.cellW, sc.cellH);
-    var taken = pullToSlots(sc, picks, o, animate);
+    var taken = pullToSlots(sc, picks, o);
     // Keep-out zone: the assembly's box grown by RING cells, plus the cells the candidates now occupy.
     var b = sc.u.bbox(sc.main), fence = { position: { x: (b.l + b.r) / 2, y: (b.t + b.b) / 2 },
       width: b.r - b.l + 2 * RING * sc.cellW, height: b.b - b.t + 2 * RING * sc.cellH };
     var obstacles = sc.main.concat([fence], taken);
-    var rest = sc.loose.filter(function (p) { return !best.has(p); }).map(function (p) { return sc.u.makeUnit([p], sc.subj); });
+    // Everything else — singles and small groups alike — is parked outside the ring as a gradient.
+    var rest = sc.u.collectUnits(sc.pz).units.filter(function (unit) { return !best.has(unit.members[0]); });
     if (rest.length) {
       rest = sc.u.orderByColor(rest);
       var scales = [1, 0.85, 0.7, 0.6];
       for (var i = 0; i < scales.length; i++)
         if (sc.u.layout(rest, sc.W, sc.H, obstacles, sc.cellW * scales[i], sc.cellH * scales[i], 0) === rest.length) break;
       rest.forEach(function (unit) {
-        if (!unit.cell) return;
-        unit.members[0].move(unit.cell.x, unit.cell.y, { animate: animate, aniInterval: 500 });
+        if (unit.cell) unit.members[0].move(unit.cell.x + unit.dx, unit.cell.y + unit.dy);
       });
     }
-    dimExcept(sc.loose, chosen);
+    dimExcept(sc.movable, chosen);
     return chosen.length;
   }
 

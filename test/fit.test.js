@@ -37,14 +37,16 @@ test('rankCandidates puts the true piece first and rejects incompatible tabs', (
 
 test('frontier gathers candidates for every slot at the rim and parks the rest outside the ring', () => {
   const P = makePuzzle({ rows: 6, cols: 6, seed: 8 }), { W, H } = P.install(2400, 1800);
-  P.join([8, 9, 10, 14, 15, 16, 20, 21, 22], 1000, 800); // 3×3 block in the middle of the table
+  const mainGroup = P.join([8, 9, 10, 14, 15, 16, 20, 21, 22], 1000, 800); // 3×3 block in the middle of the table
+  const pair = P.join([35, 36], 1000, 800); // a small joined group right next to the assembly
   P.scatter(W, H);
   const n = fit.frontier();
-  const loose = P.pieces.filter((p) => !p.group), near = loose.filter((p) => p.opacity === 1), far = loose.filter((p) => p.opacity < 1);
+  const movable = P.pieces.filter((p) => p.group !== mainGroup), near = movable.filter((p) => p.opacity === 1), far = movable.filter((p) => p.opacity < 1);
   assert.equal(near.length, n);
   assert.ok(n >= 12 && n <= 36, `one to three candidates per slot, got ${n}`);
-  assert.equal(far.length, loose.length - n);
-  const main = P.pieces.filter((p) => p.group), cx = 1000 + CORE, cy = 800 + CORE, cell = near[0].width + 4;
+  assert.equal(far.length, movable.length - n);
+  pair.members.forEach((p) => assert.ok(far.includes(p), 'small group is dimmed and parked too'));
+  const main = mainGroup.members, cx = 1000 + CORE, cy = 800 + CORE, cell = near[0].width + 4;
   const dist = (p) => Math.max(Math.abs(p.position.x - cx), Math.abs(p.position.y - cy));
   near.forEach((p) => assert.ok(dist(p) < 1.5 * CORE + 3 * cell, 'candidate hugs the assembly'));
   far.forEach((p) => assert.ok(dist(p) > 1.5 * CORE + 2 * cell, 'parked piece is outside the keep-out ring'));
