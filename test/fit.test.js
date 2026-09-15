@@ -76,10 +76,17 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
 test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', () => {
   const P = makePuzzle({ rows: 5, cols: 5, seed: 4 }), { W, H } = P.install(1600, 1200);
   P.join([1, 2, 6, 7], 400, 400);
-  // Crowded table: every loose piece packed in a tight grid around the assembly, like a big sorted puzzle.
-  const loose = P.pieces.filter((p) => !p.group), cell = loose[0].width + 4;
-  loose.forEach((p, i) => p.move(200 + (i % 7) * cell, 200 + Math.floor(i / 7) * cell));
   const slot = fit.findSlots(P.pieces.filter((p) => p.group), CORE, CORE).find((s) => s.id === 3);
+  // Crowded table like a big sorted puzzle: non-candidates fill the cells nearest the slot, the real candidates
+  // sit far away, so a naive "nearest free cell" would send them somewhere else entirely.
+  const loose = P.pieces.filter((p) => !p.group), cell = loose[0].width + 4, cells = [];
+  for (let r = 0; r < Math.floor(H / cell); r++) for (let c = 0; c < Math.floor(W / cell); c++) cells.push({ x: (c + 0.5) * cell, y: (r + 0.5) * cell });
+  const onAssembly = (q) => P.pieces.some((p) => p.group && Math.abs(p.position.x - q.x) < p.width && Math.abs(p.position.y - q.y) < p.height);
+  const free = cells.filter((q) => !onAssembly(q)).sort((a, b) => Math.hypot(a.x - slot.x, a.y - slot.y) - Math.hypot(b.x - slot.x, b.y - slot.y));
+  const subj = P.subject.getContext().getImageData();
+  const cands = fit.rankCandidates(slot, unitsOf(P), subj, P.pz, mainOf(P)).slice(0, 8).map((r) => r.piece);
+  loose.filter((p) => !cands.includes(p)).forEach((p, i) => p.move(free[i].x, free[i].y));
+  cands.forEach((p, i) => p.move(free[free.length - 1 - i].x, free[free.length - 1 - i].y));
   const n = fit.at(slot.x + 5, slot.y - 5);
   assert.ok(n > 0 && n <= 8);
   const near = loose.filter((p) => p.opacity === 1), dim = loose.filter((p) => p.opacity < 1);
