@@ -2,32 +2,34 @@
 // ranked by shape (tab/hole must be complementary) and boundary-colour continuity, then pulled next to it.
 (function (root) {
   'use strict';
-  var TOP_N = 8, DIM = 0.35;
+  var TOP_N = 8, DIM = 0.35; // candidates pulled to the slot; opacity of the rest
+  var STRIP_N = 12, INSET = 2; // samples per edge strip; px inside the core edge they are taken from
   var DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]], SIDES = ['top', 'right', 'bottom', 'left'], OPP = [2, 3, 0, 1];
 
+  function util() { return root.jigexColorSort.util; }
+
   // Lab samples along one side of a piece's core, just inside the edge, top→bottom or left→right.
-  function edgeStrip(piece, side, subj, util, n) {
-    var s = piece.spec, bb = s.image.bounds, core = s.core, out = [];
-    var x0 = bb.x + core.x, y0 = bb.y + core.y, w = core.width, h = core.height, inset = 2;
+  function edgeStrip(piece, side, subj, n) {
+    var s = piece.spec, bb = s.image.bounds, core = s.core, out = [], toLab = util().rgbToLab;
+    var x0 = bb.x + core.x, y0 = bb.y + core.y, w = core.width, h = core.height;
     for (var i = 0; i < n; i++) {
       var t = (i + 0.5) / n, x, y;
-      if (side === 0) { x = x0 + t * w; y = y0 + inset; }
-      else if (side === 2) { x = x0 + t * w; y = y0 + h - 1 - inset; }
-      else if (side === 3) { x = x0 + inset; y = y0 + t * h; }
-      else { x = x0 + w - 1 - inset; y = y0 + t * h; }
+      if (side === 0) { x = x0 + t * w; y = y0 + INSET; }
+      else if (side === 2) { x = x0 + t * w; y = y0 + h - 1 - INSET; }
+      else if (side === 3) { x = x0 + INSET; y = y0 + t * h; }
+      else { x = x0 + w - 1 - INSET; y = y0 + t * h; }
       var k = (Math.floor(y) * subj.width + Math.floor(x)) * 4;
-      out.push(util.rgbToLab([subj.data[k], subj.data[k + 1], subj.data[k + 2]]));
+      out.push(toLab([subj.data[k], subj.data[k + 1], subj.data[k + 2]]));
     }
     return out;
   }
 
+  // RMS Lab distance between two strips of equal length.
   function stripDist(a, b) {
-    var d = 0;
-    for (var i = 0; i < a.length; i++) d += util().dist({ lab: a[i] }, { lab: b[i] });
+    var d = 0, dist = util().dist;
+    for (var i = 0; i < a.length; i++) d += dist({ lab: a[i] }, { lab: b[i] });
     return Math.sqrt(d / a.length);
   }
-
-  function util() { return root.jigexColorSort.util; }
 
   // Centre of a piece's core (neighbouring cores are exactly one pitch apart; image centres are not).
   function coreCentre(p) {
@@ -45,6 +47,7 @@
         var x = cc.x + DIRS[k][0] * pitchW, y = cc.y + DIRS[k][1] * pitchH, slot = null;
         for (var i = 0; i < slots.length; i++)
           if (Math.abs(slots[i].x - x) < pitchW / 3 && Math.abs(slots[i].y - y) < pitchH / 3) { slot = slots[i]; break; }
+        // id is the true neighbour's id: used only to tell whether the slot lies on the puzzle border.
         if (!slot) { slot = { x: x, y: y, sides: [], id: n.id }; slots.push(slot); }
         slot.sides.push({ side: OPP[k], piece: p }); // p sits on side OPP[k] of the slot
       });
@@ -52,11 +55,12 @@
     return slots;
   }
 
+  // Loose pieces that could sit in `slot`, best first. Shape filtering only applies when pieces cannot rotate.
   function rankCandidates(slot, loose, subj, pz) {
-    var u = util(), cols = pz.pieces.numCols, rows = pz.pieces.numRows, n = 12;
+    var cols = pz.pieces.numCols, rows = pz.pieces.numRows;
     var row = Math.floor((slot.id - 1) / cols), col = (slot.id - 1) % cols;
     var border = [row === 0, col === cols - 1, row === rows - 1, col === 0];
-    var strips = slot.sides.map(function (s) { return { side: s.side, strip: edgeStrip(s.piece, OPP[s.side], subj, u, n), tab: s.piece.spec.edges[SIDES[OPP[s.side]]].tab }; });
+    var strips = slot.sides.map(function (s) { return { side: s.side, strip: edgeStrip(s.piece, OPP[s.side], subj, STRIP_N), tab: s.piece.spec.edges[SIDES[OPP[s.side]]].tab }; });
     var ranked = [];
     loose.forEach(function (p) {
       var e = p.spec.edges, ok = true, score = 0;
@@ -65,7 +69,7 @@
         strips.forEach(function (s) { if (ok && e[SIDES[s.side]].tab === s.tab) ok = false; });
       }
       if (!ok) return;
-      strips.forEach(function (s) { score += stripDist(s.strip, edgeStrip(p, s.side, subj, u, n)); });
+      strips.forEach(function (s) { score += stripDist(s.strip, edgeStrip(p, s.side, subj, STRIP_N)); });
       ranked.push({ piece: p, score: score / strips.length });
     });
     return ranked.sort(function (a, b) { return a.score - b.score; });
@@ -82,29 +86,27 @@
   function fitAt(x, y) {
     var u = util(), pz = u.getPuzzle();
     if (!pz || !pz.isReady()) return 0;
-    var all = pz.pieces.specList.map(function (s) { return s.piece; }).filter(function (p) { return p && !p.isDisposed; });
-    var groups = [];
-    all.forEach(function (p) { if (p.group && groups.indexOf(p.group) < 0) groups.push(p.group); });
-    groups.sort(function (a, b) { return b.members.length - a.members.length; });
-    if (!groups.length) { console.warn('jigexFit: nothing assembled yet'); return 0; }
-    var main = groups[0].members, core = main[0].spec.core, pitchW = core.width, pitchH = core.height;
+    var all = u.pieces(pz), mainGroup = u.mainGroup(all);
+    if (!mainGroup) { console.warn('jigexFit: nothing assembled yet'); return 0; }
+    var main = mainGroup.members, core = main[0].spec.core, pitchW = core.width, pitchH = core.height;
     var slot = null, bd = Infinity;
     findSlots(main, pitchW, pitchH).forEach(function (s) {
       var d = (s.x - x) * (s.x - x) + (s.y - y) * (s.y - y);
       if (d < bd) { bd = d; slot = s; }
     });
     if (!slot || bd > pitchW * pitchW) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
-    var sc = main[0].spec.image.data, subj = sc.getContext('2d').getImageData(0, 0, sc.width, sc.height);
+    var subj = u.subject(main[0]);
     var loose = all.filter(function (p) { return !p.group && p.state && p.state.name === 'resting'; });
     var ranked = rankCandidates(slot, loose, subj, pz), top = ranked.slice(0, TOP_N).map(function (r) { return r.piece; });
     restore();
     var canvas = document.getElementById('jigex-canvas'), W = canvas.width, H = canvas.height;
-    var maxW = Math.max.apply(null, loose.map(function (p) { return p.width; })), maxH = Math.max.apply(null, loose.map(function (p) { return p.height; }));
+    var cellW = Math.max.apply(null, loose.map(function (p) { return p.width; })) + u.CELL_PAD;
+    var cellH = Math.max.apply(null, loose.map(function (p) { return p.height; })) + u.CELL_PAD;
     var obstacles = all.filter(function (p) { return top.indexOf(p) < 0; });
-    var o = u.occupied(obstacles, W, H, maxW + 4, maxH + 4);
+    var o = u.occupied(obstacles, W, H, cellW, cellH);
     top.forEach(function (p) {
       var unit = u.makeUnit([p], subj);
-      if (!u.nearestCell(unit, [{ x: slot.x, y: slot.y }], o, maxW + 4, maxH + 4)) return;
+      if (!u.nearestCell(unit, [{ x: slot.x, y: slot.y }], o, cellW, cellH)) return;
       p.raise();
       p.move(unit.cell.x, unit.cell.y, { animate: true, aniInterval: 500 });
     });

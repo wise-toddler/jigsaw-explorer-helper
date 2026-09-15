@@ -13,7 +13,7 @@ piece objects, so everything it moves is a normal move: saving, undo and multipl
 | 🧲 **Magnet** | Pulls each loose piece next to the part of the assembly whose colour matches it best, preferring open sides where a piece could still attach. |
 | 📚 **Stack** | Collapses the piles into decks (top piece visible) parked along the bottom of the table — clears the table for very large puzzles. |
 | 🃏 **Deal** | Spreads the deck of the piece you last picked up, as a gradient, around where the deck sits. |
-| 🎯 **Fit** | Click an empty spot beside the assembly: loose pieces are filtered by shape (a tab must meet a hole, border sides must match) and ranked by how well their edge colours continue the neighbours'. The best 8 are pulled next to the slot, the rest are dimmed. `Esc` exits. |
+| 🎯 **Fit** | Click an empty spot beside the assembly: loose single pieces are filtered by shape (a tab must meet a hole, border sides must match; skipped when rotation is on) and ranked by how well their edge colours continue the neighbours'. The best 8 are pulled next to the slot, the rest are dimmed. `Esc` exits. |
 
 The largest joined cluster is treated as the assembly and never moves; every other piece or
 group (any size) is movable.
@@ -29,10 +29,12 @@ No extension? Paste the contents of `bookmarklet.txt` into a bookmark's URL and 
 ## Console API
 
 ```js
-jigexColorSort({ mode: 'gradient' | 'piles' | 'magnet' | 'stack' | 'deal', k: 4 }) // k = pile count
-jigexFit.at(x, y)      // canvas coordinates of an empty slot
+jigexColorSort({ mode: 'gradient' | 'piles' | 'magnet' | 'stack' | 'deal', k: 4 }) // k = pile count; returns pieces moved
+jigexFit.at(x, y)      // canvas coordinates of an empty slot; returns candidates shown
 jigexFit.toggle()      // enter / leave click-to-fit mode
 ```
+
+`jigexColorSort.util` exposes the internals (Lab conversion, k-means, layout grid…) that `fit.js` and the tests share.
 
 ## How it works
 
@@ -56,8 +58,26 @@ npm test         # unit tests (node:test) against a synthetic puzzle in test/fix
 npm run build    # regenerates bookmarklet.txt from src/
 ```
 
-Layout: `src/core.js` (sorting + layout), `src/fit.js` (slot candidates), `src/ui.js` (toolbar),
-`test/` (fixture + tests), `scripts/build-bookmarklet.js`.
+```
+manifest.json               MV3 manifest: loads the three src files as MAIN-world content scripts
+src/core.js                 window.jigexColorSort — colour maths, occupancy grid, the five modes
+src/fit.js                  window.jigexFit — slot detection, candidate ranking, click-to-fit mode
+src/ui.js                   floating toolbar
+test/fixture.js             synthetic puzzle with the same fields as the real player
+test/core.test.js           sorting/layout tests
+test/fit.test.js            slot + ranking tests
+scripts/build-bookmarklet.js
+bookmarklet.txt             generated; never edit by hand
+```
+
+The src files are plain scripts (no modules, no bundler, no runtime dependencies) so the same code runs
+as a content script, as a bookmarklet and under `require()` in the tests. Keep the IIFE + `module.exports`
+shim when adding to them, and run `npm run build` before committing so `bookmarklet.txt` matches `src/`.
+
+## Contributing
+
+Issues and pull requests are welcome. Keep changes small, keep `npm test` green, and describe how you
+verified a change in the real player (the fixture cannot cover the player's own move/undo behaviour).
 
 ## License
 

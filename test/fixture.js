@@ -80,4 +80,4 @@ function makePuzzle(opts = {}) {
   return { pz, pieces, subject, join, scatter, install, player, at, CORE, SIZE, rows, cols };
 }
 
-module.exports = { makePuzzle, CORE, SIZE, MARGIN };
+module.exports = { makePuzzle, rng, CORE, SIZE, MARGIN };

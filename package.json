@@ -2,7 +2,20 @@
   "name": "jigsaw-explorer-helper",
   "version": "0.2.0",
   "description": "Browser extension: colour sorting, piles, stacks and fit hints for Jigsaw Explorer puzzles.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wise-toddler/jigsaw-explorer-helper.git"
+  },
+  "keywords": [
+    "jigsaw",
+    "jigsawexplorer",
+    "browser-extension",
+    "bookmarklet"
+  ],
   "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test test/",
     "build": "node scripts/build-bookmarklet.js"

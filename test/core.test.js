@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { makePuzzle, SIZE } = require('./fixture');
+const { makePuzzle, rng, SIZE } = require('./fixture');
 const sort = require('../src/core');
 const U = sort.util;
 
@@ -21,7 +21,7 @@ test('rgbToLab maps white/black to L=100/0 with no chroma', () => {
 });
 
 test('orderByColor yields a smoother chain than the input order', () => {
-  const rand = (() => { let s = 7; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; })();
+  const rand = rng(7);
   const units = Array.from({ length: 40 }, () => ({ lab: U.rgbToLab([rand() * 255, rand() * 255, rand() * 255]) }));
   const cost = (arr) => arr.slice(1).reduce((s, u, i) => s + Math.sqrt(U.dist(arr[i], u)), 0);
   const ordered = U.orderByColor(units.slice());
@@ -53,6 +53,18 @@ test('span: singles take one cell, groups span by their real size', () => {
   assert.deepEqual(U.span({ single: true, w: 500, h: 500 }, 50, 50, 20, 20), { cw: 1, ch: 1 });
   assert.deepEqual(U.span({ single: false, w: 96, h: 56 }, 56, 56, 20, 20), { cw: 2, ch: 1 });
   assert.deepEqual(U.span({ single: false, w: 96, h: 56 }, 34, 34, 20, 20), { cw: 3, ch: 2 });
+});
+
+test('collectUnits: largest group is the assembly, smaller groups become one unit each', () => {
+  const P = makePuzzle({ rows: 4, cols: 4 });
+  P.join([1, 2, 3, 5, 6, 7], 100, 100);
+  const small = P.join([11, 12], 500, 500);
+  const { units, mainGroup } = U.collectUnits(P.pz);
+  assert.equal(mainGroup.members.length, 6);
+  assert.equal(units.length, 1 + (16 - 6 - 2), 'one unit for the pair plus one per single');
+  const pair = units.find((u) => !u.single);
+  assert.deepEqual(pair.members, small.members);
+  assert.ok(pair.w > pair.h, 'two side-by-side pieces span wider than tall');
 });
 
 test('gradient: loose pieces land on distinct free cells, assembly untouched', () => {

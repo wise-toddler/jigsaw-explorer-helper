@@ -2,10 +2,28 @@
 (function (root) {
   'use strict';
   if (root.jigexColorSort) return;
+  var CELL_PAD = 4; // px of breathing room added to a piece's size when sizing layout cells
 
-  function getPuzzle() {
-    var g = root.jigexGlobals, p = g && g.modules && g.modules.player;
-    return p && p.Puzzle && p.Puzzle.curr;
+  function getPlayer() { var g = root.jigexGlobals; return g && g.modules && g.modules.player; }
+  function getPuzzle() { var p = getPlayer(); return p && p.Puzzle && p.Puzzle.curr; }
+
+  // Every live piece of the puzzle.
+  function pieces(pz) {
+    return pz.pieces.specList.map(function (s) { return s.piece; }).filter(function (p) { return p && !p.isDisposed; });
+  }
+
+  // The largest joined cluster is the assembly; null while nothing is joined yet.
+  function mainGroup(all) {
+    var groups = [];
+    all.forEach(function (p) { if (p.group && groups.indexOf(p.group) < 0) groups.push(p.group); });
+    groups.sort(function (a, b) { return b.members.length - a.members.length; });
+    return groups[0] || null;
+  }
+
+  // Pixel data of the shared subject image (every piece's spec.image.data is the same canvas).
+  function subject(piece) {
+    var sc = piece.spec.image.data;
+    return sc.getContext('2d').getImageData(0, 0, sc.width, sc.height);
   }
 
   // Average colour of a piece's core (body without tabs) sampled from the shared subject image.
@@ -168,7 +186,7 @@
   // Magnet: each unit goes to the nearest free cell beside the assembly piece whose colour matches it best.
   // neighbors[] is [top, right, bottom, left]; a side is open when that neighbour is not in the assembly yet.
   function magnet(units, main, subj, W, H, cellW, cellH) {
-    var o = occupied(main, W, H, cellW, cellH), cols = o.cols, rows = o.rows, used = o.grid, r, c, i;
+    var o = occupied(main, W, H, cellW, cellH);
     var dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
     var anchors = main.map(function (p) {
       var pts = [];
@@ -234,66 +252,68 @@
     return mine;
   }
 
+  // Movable units of the puzzle: the largest joined cluster is the assembly and stays put; every other
+  // resting piece or group is a unit. `resting` also includes assembly pieces (used for cell sizing).
+  function collectUnits(pz) {
+    var all = pieces(pz), resting = all.filter(function (p) { return p.state && p.state.name === 'resting'; });
+    var main = mainGroup(all), subj = resting.length ? subject(resting[0]) : null, units = [];
+    resting.forEach(function (p) {
+      if (!p.group) return units.push(makeUnit([p], subj));
+      if (p.group === main || p.group.members[0] !== p) return;
+      units.push(makeUnit(p.group.members.slice(), subj));
+    });
+    return { units: units, mainGroup: main, resting: resting, subj: subj };
+  }
+
+  // Order the piles themselves as a gradient, and each pile internally; each pile starts a new band.
+  function orderPiles(piles) {
+    var cents = piles.map(function (g) { var m = [0, 0, 0]; g.forEach(function (u) { for (var j = 0; j < 3; j++) m[j] += u.lab[j] / g.length; }); return { lab: m, pile: g }; });
+    var units = [];
+    orderByColor(cents).forEach(function (c) {
+      var ordered = orderByColor(c.pile);
+      ordered[0].newBand = true;
+      units = units.concat(ordered);
+    });
+    return units;
+  }
+
   // opts.mode: gradient (default) | piles | magnet | stack | deal; opts.k: pile count (auto if omitted).
   root.jigexColorSort = function (opts) {
     opts = opts || {};
     var pz = getPuzzle();
     if (!pz || !pz.pieces || !pz.pieces.specList || !pz.isReady()) { console.warn('jigexColorSort: puzzle not ready'); return 0; }
-    var all = pz.pieces.specList.map(function (s) { return s.piece; }).filter(function (p) { return p && !p.isDisposed; });
-    var resting = all.filter(function (p) { return p.state && p.state.name === 'resting'; });
-    if (!resting.length) { alert('No loose pieces to sort'); return 0; }
-    var sc = resting[0].spec.image.data, subj = sc.getContext('2d').getImageData(0, 0, sc.width, sc.height);
-    // The largest joined cluster is the assembly and stays put; every other piece or group is movable.
-    var groups = [];
-    all.forEach(function (p) { if (p.group && groups.indexOf(p.group) < 0) groups.push(p.group); });
-    groups.sort(function (a, b) { return b.members.length - a.members.length; });
-    var mainGroup = groups[0] || null;
-    var units = [];
-    resting.forEach(function (p) {
-      if (!p.group) return units.push(makeUnit([p], subj));
-      if (p.group === mainGroup || p.group.members[0] !== p) return;
-      units.push(makeUnit(p.group.members.slice(), subj));
-    });
+    var coll = collectUnits(pz), units = coll.units, resting = coll.resting, subj = coll.subj;
     if (!units.length) { alert('No loose pieces to sort'); return 0; }
-    var piles = 0, mode = opts.mode || 'gradient';
-    if (mode === 'magnet' && !mainGroup) mode = 'piles'; // nothing to attract to yet
+    var pileCount = 0, mode = opts.mode || 'gradient';
+    if (mode === 'magnet' && !coll.mainGroup) mode = 'piles'; // nothing to attract to yet
     var canvas = document.getElementById('jigex-canvas'), W = canvas.width, H = canvas.height;
-    var main = mainGroup ? mainGroup.members : [];
+    var main = coll.mainGroup ? coll.mainGroup.members : [];
     var maxW = Math.max.apply(null, resting.map(function (p) { return p.width; }));
     var maxH = Math.max.apply(null, resting.map(function (p) { return p.height; }));
     if (mode === 'deal') {
-      var sel = opts.piece || P().Piece.selectedPiece || P().Piece.capturedList[0];
+      var player = getPlayer(), sel = opts.piece || player.Piece.selectedPiece || player.Piece.capturedList[0];
       var pileId = sel && sel._csPile;
       if (pileId === undefined) { console.warn('jigexColorSort: pick a piece from a stack first'); return 0; }
       var others = main.concat(resting.filter(function (p) { return p._csPile !== pileId; }));
-      return moveUnits(deal(units, pileId, others, W, H, maxW + 4, maxH + 4), W, H, false);
+      return moveUnits(deal(units, pileId, others, W, H, maxW + CELL_PAD, maxH + CELL_PAD), W, H, false);
     }
     if ((mode === 'piles' || mode === 'stack') && units.length > 3) {
       var k = opts.k || Math.min(6, Math.max(2, Math.round(Math.sqrt(units.length / 3))));
-      var groups = kmeans(units, k);
-      // Order the piles themselves as a gradient, and each pile internally.
-      var cents = groups.map(function (g) { var m = [0, 0, 0]; g.forEach(function (u) { for (var j = 0; j < 3; j++) m[j] += u.lab[j] / g.length; }); return { lab: m, pile: g }; });
-      units = [];
-      orderByColor(cents).forEach(function (c) {
-        var ordered = orderByColor(c.pile);
-        ordered[0].newBand = true;
-        units = units.concat(ordered);
-      });
-      piles = groups.length;
+      var piles = kmeans(units, k);
+      units = orderPiles(piles);
+      pileCount = piles.length;
     } else if (mode !== 'magnet') units = orderByColor(units);
 
-    if (mode === 'stack') { stack(units, main, W, H, maxW + 4, maxH + 4); return moveUnits(units, W, H, true); }
+    if (mode === 'stack') { stack(units, main, W, H, maxW + CELL_PAD, maxH + CELL_PAD); return moveUnits(units, W, H, true); }
     // Full-size cells with a gap row between piles first; drop the gap, then shrink cells (tabs overlap).
     var scales = [1, 0.9, 0.8, 0.7, 0.6], done = false;
     for (var si = 0; si < scales.length && !done; si++) {
-      var cw = maxW * scales[si] + 4, ch = maxH * scales[si] + 4;
+      var cw = maxW * scales[si] + CELL_PAD, ch = maxH * scales[si] + CELL_PAD;
       if (mode === 'magnet') done = magnet(units, main, subj, W, H, cw, ch) === units.length;
-      else for (var gap = piles ? 1 : 0; gap >= 0 && !done; gap--) done = layout(units, W, H, main, cw, ch, gap) === units.length;
+      else for (var gap = pileCount ? 1 : 0; gap >= 0 && !done; gap--) done = layout(units, W, H, main, cw, ch, gap) === units.length;
     }
     return moveUnits(units, W, H, false);
   };
-
-  function P() { return root.jigexGlobals.modules.player; }
 
   // Animate every unit to its cell; `topFirst` raises in reverse so the first unit ends on top (stacks).
   function moveUnits(units, W, H, topFirst) {
@@ -307,8 +327,9 @@
   }
 
   // Shared helpers for fit.js and the unit tests.
-  root.jigexColorSort.util = { getPuzzle: getPuzzle, avgColor: avgColor, rgbToLab: rgbToLab, dist: dist, kmeans: kmeans,
-    orderByColor: orderByColor, occupied: occupied, span: span, nearestCell: nearestCell, layout: layout, magnet: magnet,
-    stack: stack, deal: deal, makeUnit: makeUnit, bbox: bbox };
+  root.jigexColorSort.util = { CELL_PAD: CELL_PAD, getPuzzle: getPuzzle, pieces: pieces, mainGroup: mainGroup, subject: subject,
+    avgColor: avgColor, rgbToLab: rgbToLab, dist: dist, kmeans: kmeans, orderByColor: orderByColor, occupied: occupied, span: span,
+    nearestCell: nearestCell, layout: layout, magnet: magnet, stack: stack, deal: deal, makeUnit: makeUnit, bbox: bbox,
+    collectUnits: collectUnits };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.jigexColorSort;
 })(typeof window !== 'undefined' ? window : globalThis);
