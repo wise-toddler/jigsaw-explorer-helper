@@ -25,7 +25,7 @@ group (any size) is movable.
 
 1. Open `chrome://extensions` (or `edge://extensions`) and enable **Developer mode**.
 2. **Load unpacked** → choose this folder.
-3. Open any puzzle in the player; the toolbar appears bottom-right.
+3. Open any puzzle in the player; the buttons appear in the player's top bar, next to the menu icon.
 
 No extension? Paste the contents of `bookmarklet.txt` into a bookmark's URL and click it on the puzzle page.
 

@@ -287,7 +287,7 @@
   function setActive(on, button) {
     active = on; btn = button || btn;
     if (!on) restore();
-    if (btn) { btn.textContent = on ? '🎯 Click a gap or the assembly… (Esc)' : '🎯 Fit'; btn.style.background = on ? '#c0392b' : ''; }
+    if (btn) { btn.textContent = on ? '🎯 Click a gap or the assembly… (Esc)' : '🎯 Fit'; btn.style.background = on ? '#c0392b' : (btn.dataset && btn.dataset.bg) || ''; }
   }
 
   if (typeof document !== 'undefined') {

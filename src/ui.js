@@ -1,13 +1,15 @@
-// Floating toolbar for the Jigsaw Explorer player page.
+// Helper buttons, placed inside the player's own top toolbar (falls back to a floating strip if it is missing).
 (function () {
   'use strict';
   if (document.getElementById('jigex-colorsort')) return;
+  var toolbar = document.getElementById('jigex-toolbar');
   var host = document.createElement('div');
   host.id = 'jigex-colorsort';
-  host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;display:flex;flex-wrap:wrap;' +
-    'justify-content:flex-end;gap:6px;max-width:420px';
-  var BTN = 'padding:7px 12px;border:0;border-radius:18px;background:#4a6fa5;color:#fff;font:13px sans-serif;' +
-    'cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+  host.style.cssText = toolbar
+    ? 'position:absolute;left:52px;top:0;height:100%;display:flex;align-items:center;gap:5px;z-index:5'
+    : 'position:fixed;right:16px;bottom:16px;z-index:2147483647;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px';
+  var BTN = 'padding:3px 9px;border:0;border-radius:12px;background:rgba(255,255,255,.22);color:#fff;font:12px sans-serif;' +
+    'line-height:16px;cursor:pointer;white-space:nowrap';
 
   function flash(btn, label, text) {
     btn.textContent = text;
@@ -22,6 +24,7 @@
     btn.textContent = label;
     btn.title = title + ' (Alt+' + key + ')';
     btn.style.cssText = BTN;
+    btn.dataset.bg = btn.style.background; // fit.js restores this after its "armed" red
     btn.addEventListener('click', function () { onClick(btn); });
     keys['Key' + key] = function () { onClick(btn); };
     host.appendChild(btn);
@@ -39,8 +42,8 @@
   sortBtn('🧲 Magnet', 'Pull each loose piece next to the matching-colour part of the assembly', 'M', 'magnet');
   sortBtn('📚 Stack', 'Stack loose pieces into colour decks to clear the table', 'S', 'stack');
   sortBtn('🃏 Deal', 'Spread the deck of the piece you are holding / last picked', 'D', 'deal');
-  add('🎯 Fit', 'Click a gap beside the assembly: pieces that could fit come over. Click the assembly itself: ' +
-    'candidates for every gap gather around it and the rest are parked away', 'F', function (btn) {
+  add('🎯 Fit', 'Click a gap beside the assembly: pieces that could fit come over (or snap in). Click a piece of the ' +
+    'assembly: keep snapping candidates around that spot, park the rest away', 'F', function (btn) {
     window.jigexFit.toggle(btn);
   });
   document.addEventListener('keydown', function (e) {
@@ -49,5 +52,8 @@
     e.preventDefault();
     keys[e.code]();
   }, true);
-  document.body.appendChild(host);
+  if (toolbar) {
+    if (getComputedStyle(toolbar).position === 'static') toolbar.style.position = 'relative';
+    toolbar.appendChild(host);
+  } else document.body.appendChild(host);
 })();
