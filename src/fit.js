@@ -92,7 +92,7 @@
     return ranked.sort(function (a, b) { return a.score - b.score; });
   }
 
-  var dimmed = [], active = false, btn = null;
+  var dimmed = [], active = false, btn = null, snapped = false;
 
   function restore() {
     dimmed.forEach(function (p) { if (!p.isDisposed) p.opacity = 1; });
@@ -165,8 +165,19 @@
     return units.reduce(function (a, u) { return a.concat(u.members); }, []);
   }
 
-  // Rank pieces for the slot nearest to canvas point (x, y); pull the best next to it and dim the rest.
-  function fitAt(x, y) {
+  // Put the candidate's entry piece exactly on the slot and let the player's own drop() decide: it only
+  // joins a true neighbour within snap distance, so a wrong guess just ends up lying beside the slot.
+  function trySnap(sc, cand, slot) {
+    var p = cand.piece, first = cand.unit.members[0], cc = coreCentre(p);
+    first.raise();
+    first.move(first.position.x + slot.x - cc.x, first.position.y + slot.y - cc.y);
+    if (p.drop) p.drop(false);
+    return !!p.group && p.group === sc.main[0].group;
+  }
+
+  // Rank candidates for the slot nearest to canvas point (x, y). If the best one really fits it is snapped
+  // in (unless opts.snap === false); otherwise the best few are pulled next to the slot and the rest dimmed.
+  function fitAt(x, y, opts) {
     var sc = scene();
     if (!sc) return 0;
     var slot = null, bd = Infinity;
@@ -176,6 +187,8 @@
     });
     if (!slot || bd > sc.pitch * sc.pitch) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
     var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
+    snapped = !!top.length && !(opts && opts.snap === false) && trySnap(sc, top[0], slot);
+    if (snapped) { restore(); return 1; }
     var topUnits = top.map(function (r) { return r.unit; }), chosen = membersOf(topUnits);
     restore();
     // Only the assembly blocks candidate cells (on a crowded table the nearest truly free cell can be far away);
@@ -229,8 +242,9 @@
     var sc = scene(), onAssembly = !!sc && sc.main.some(function (p) {
       return Math.abs(p.position.x - x) < p.width / 2 && Math.abs(p.position.y - y) < p.height / 2;
     });
+    snapped = false;
     var n = onAssembly ? frontier() : fitAt(x, y);
-    if (btn) btn.textContent = n ? '🎯 ' + n + ' candidates (Esc)' : '🎯 Click a gap or the assembly';
+    if (btn) btn.textContent = snapped ? '✅ Snapped in! (Esc)' : n ? '🎯 ' + n + ' candidates (Esc)' : '🎯 Click a gap or the assembly';
   }
 
   function setActive(on, button) {

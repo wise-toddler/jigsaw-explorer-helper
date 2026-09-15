@@ -45,6 +45,16 @@ function makePuzzle(opts = {}) {
       move(x, y) {
         const dx = x - this.position.x, dy = y - this.position.y;
         (this.group ? this.group.members : [this]).forEach((p) => { p.position.x += dx; p.position.y += dy; });
+      },
+      // Like the player's drop(): join a true neighbour's group when it lies within 25px of its exact fit.
+      drop() {
+        const mine = this.group ? this.group.members : [this], DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+        let target = null;
+        mine.forEach((m) => m.neighbors.forEach((n, k) => {
+          if (target || !n || !n.group || n.group === this.group) return;
+          if (Math.abs(n.position.x - m.position.x - DIRS[k][0] * CORE) < 25 && Math.abs(n.position.y - m.position.y - DIRS[k][1] * CORE) < 25) target = n.group;
+        }));
+        if (target) mine.forEach((m) => { m.group = target; target.members.push(m); });
       }
     };
     piece.spec.piece = piece;

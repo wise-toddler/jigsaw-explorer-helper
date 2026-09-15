@@ -73,6 +73,22 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
   far.forEach((p) => near.forEach((q) => assert.ok(!touching(p, q), 'parked piece never lands on a candidate')));
 });
 
+test('fit.at snaps the best candidate in when it truly fits, and never joins a wrong one', () => {
+  const P = makePuzzle({ rows: 5, cols: 5, seed: 4 }), { W, H } = P.install(1600, 1200);
+  const mainGroup = P.join([1, 2, 6, 7], 400, 400);
+  P.scatter(W, H);
+  const slot = fit.findSlots(mainGroup.members, CORE, CORE).find((s) => s.id === 3);
+  assert.equal(fit.at(slot.x, slot.y), 1);
+  const three = P.pieces[2];
+  assert.equal(three.group, mainGroup, 'piece 3 joined the assembly');
+  assert.ok(Math.abs(three.position.x - (400 + 2 * CORE)) < 1 && Math.abs(three.position.y - 400) < 1, 'sitting exactly right of piece 2');
+  assert.ok(P.pieces.filter((p) => !p.group).every((p) => p.opacity === 1), 'nothing left dimmed after a snap');
+  // A wrong piece dropped on a slot stays loose: the fixture drop() (like the player's) only joins true neighbours.
+  const wrong = P.pieces[20], slot8 = fit.findSlots(mainGroup.members, CORE, CORE).find((s) => s.id === 8);
+  wrong.move(slot8.x, slot8.y); wrong.drop();
+  assert.equal(wrong.group, null);
+});
+
 test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', () => {
   const P = makePuzzle({ rows: 5, cols: 5, seed: 4 }), { W, H } = P.install(1600, 1200);
   P.join([1, 2, 6, 7], 400, 400);
@@ -87,7 +103,7 @@ test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', 
   const cands = fit.rankCandidates(slot, unitsOf(P), subj, P.pz, mainOf(P)).slice(0, 8).map((r) => r.piece);
   loose.filter((p) => !cands.includes(p)).forEach((p, i) => p.move(free[i].x, free[i].y));
   cands.forEach((p, i) => p.move(free[free.length - 1 - i].x, free[free.length - 1 - i].y));
-  const n = fit.at(slot.x + 5, slot.y - 5);
+  const n = fit.at(slot.x + 5, slot.y - 5, { snap: false });
   assert.ok(n > 0 && n <= 8);
   const near = loose.filter((p) => p.opacity === 1), dim = loose.filter((p) => p.opacity < 1);
   assert.equal(near.length, n);
