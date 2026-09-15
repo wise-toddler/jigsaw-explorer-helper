@@ -3,8 +3,9 @@
 (function (root) {
   'use strict';
   if (root.jigexFit) return; // bookmarklet on top of the extension must not register listeners twice
-  var TOP_N = 8, DIM = 0.35; // candidates pulled to a clicked slot; opacity of the rest
+  var TOP_N = 5, DIM = 0.35; // candidates pulled to a clicked slot; opacity of the rest
   var PER_SLOT = 3, RING = 2; // frontier: candidates kept per slot; keep-out ring (in cells) around the assembly
+  var NEAR = 3, NEAR_SLOTS = 5; // assembly click: slots within NEAR pitches of the click, at most NEAR_SLOTS of them
   var STRIP_N = 12, INSET = 2; // samples per edge strip; px inside the core edge they are taken from
   var SIDES = ['top', 'right', 'bottom', 'left'], OPP = [2, 3, 0, 1];
 
@@ -92,7 +93,7 @@
     return ranked.sort(function (a, b) { return a.score - b.score; });
   }
 
-  var dimmed = [], active = false, btn = null, snapped = false;
+  var dimmed = [], active = false, btn = null, snapped = false, lastSlots = 0;
 
   function restore() {
     dimmed.forEach(function (p) { if (!p.isDisposed) p.opacity = 1; });
@@ -205,11 +206,19 @@
 
   // Frontier: for every open slot around the assembly pull its best PER_SLOT candidates to the rim,
   // and park every other loose piece (as a gradient) outside a keep-out ring around the assembly.
-  function frontier() {
+  // With a click point, only the few open slots around it are considered (the ones the player is working on).
+  function frontier(x, y) {
     var sc = scene();
     if (!sc) return 0;
+    var slots = sc.slots;
+    if (typeof x === 'number') {
+      var byDist = slots.slice().sort(function (a, b) { return Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y); });
+      slots = byDist.filter(function (s) { return Math.hypot(s.x - x, s.y - y) <= NEAR * sc.pitch; }).slice(0, NEAR_SLOTS);
+      if (!slots.length) slots = byDist.slice(0, 1);
+    }
+    lastSlots = slots.length;
     var best = new Map();
-    sc.slots.forEach(function (slot) {
+    slots.forEach(function (slot) {
       rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, PER_SLOT).forEach(function (r) {
         var cur = best.get(r.unit);
         if (!cur || r.score < cur.score) best.set(r.unit, { unit: r.unit, slot: slot, score: r.score });
@@ -242,12 +251,17 @@
     var canvas = document.getElementById('jigex-canvas'), r = canvas.getBoundingClientRect();
     var x = (e.clientX - r.left) * canvas.width / r.width, y = (e.clientY - r.top) * canvas.height / r.height;
     e.preventDefault(); e.stopImmediatePropagation();
-    var sc = scene(), onAssembly = !!sc && sc.main.some(function (p) {
-      return Math.abs(p.position.x - x) < p.width / 2 && Math.abs(p.position.y - y) < p.height / 2;
+    // A click near an open slot is a slot click even if it lands on a neighbour's tab; only a click on a
+    // piece's core (body without tabs) counts as clicking the assembly.
+    var sc = scene(), nearSlot = !!sc && sc.slots.some(function (s) { return Math.hypot(s.x - x, s.y - y) <= sc.pitch; });
+    var onAssembly = !!sc && !nearSlot && sc.main.some(function (p) {
+      var cc = coreCentre(p), core = p.spec.core;
+      return Math.abs(cc.x - x) < core.width / 2 && Math.abs(cc.y - y) < core.height / 2;
     });
     snapped = false;
-    var n = onAssembly ? frontier() : fitAt(x, y);
-    if (btn) btn.textContent = snapped ? '✅ Snapped in! (Esc)' : n ? '🎯 ' + n + ' candidates (Esc)' : '🎯 Click a gap or the assembly';
+    var n = onAssembly ? frontier(x, y) : fitAt(x, y);
+    if (btn) btn.textContent = snapped ? '✅ Snapped in! (Esc)' : !n ? '🎯 Click a gap or the assembly'
+      : '🎯 ' + n + ' candidates' + (onAssembly ? ' for ' + lastSlots + ' gaps' : '') + ' (Esc)';
   }
 
   function setActive(on, button) {

@@ -59,10 +59,15 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
   const mainGroup = P.join([8, 9, 10, 14, 15, 16, 20, 21, 22], 1000, 800); // 3×3 block in the middle of the table
   const pair = P.join([35, 36], 1000, 800); // a small joined group right next to the assembly
   P.scatter(W, H);
+  // Clicking the block's right edge only considers the slots around that point: a handful of candidates, not dozens.
+  const local = fit.frontier(1000 + 2 * CORE, 800 + CORE);
+  assert.ok(local >= 1 && local <= 15, `a few candidates for the nearby gaps, got ${local}`);
+  fit.toggle(); fit.toggle();
+  P.scatter(W, H);
   const n = fit.frontier();
   const movable = P.pieces.filter((p) => p.group !== mainGroup), near = movable.filter((p) => p.opacity === 1), far = movable.filter((p) => p.opacity < 1);
   assert.equal(near.length, n);
-  assert.ok(n >= 12 && n <= 36, `one to three candidates per slot, got ${n}`);
+  assert.ok(n > local && n <= 36, `one to three candidates per slot over the whole rim, got ${n}`);
   assert.equal(far.length, movable.length - n);
   pair.members.forEach((p) => assert.ok(far.includes(p), 'small group is dimmed and parked too'));
   const cx = 1000 + CORE, cy = 800 + CORE, cell = near[0].width + CELL_PAD;
@@ -102,11 +107,11 @@ test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', 
   const onAssembly = (q) => P.pieces.some((p) => p.group && Math.abs(p.position.x - q.x) < p.width && Math.abs(p.position.y - q.y) < p.height);
   const free = cells.filter((q) => !onAssembly(q)).sort((a, b) => Math.hypot(a.x - slot.x, a.y - slot.y) - Math.hypot(b.x - slot.x, b.y - slot.y));
   const subj = P.subject.getContext().getImageData();
-  const cands = fit.rankCandidates(slot, unitsOf(P), subj, P.pz, mainOf(P)).slice(0, 8).map((r) => r.piece);
+  const cands = fit.rankCandidates(slot, unitsOf(P), subj, P.pz, mainOf(P)).slice(0, 5).map((r) => r.piece);
   loose.filter((p) => !cands.includes(p)).forEach((p, i) => p.move(free[i].x, free[i].y));
   cands.forEach((p, i) => p.move(free[free.length - 1 - i].x, free[free.length - 1 - i].y));
   const n = fit.at(slot.x + 5, slot.y - 5, { snap: false });
-  assert.ok(n > 0 && n <= 8);
+  assert.ok(n > 0 && n <= 5);
   const near = loose.filter((p) => p.opacity === 1), dim = loose.filter((p) => p.opacity < 1);
   assert.equal(near.length, n);
   assert.equal(dim.length, loose.length - n);
