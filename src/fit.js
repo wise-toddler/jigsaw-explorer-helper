@@ -2,7 +2,8 @@
 // ranked by shape (tab/hole must be complementary) and boundary-colour continuity, then pulled next to it.
 (function (root) {
   'use strict';
-  var TOP_N = 8, DIM = 0.35; // candidates pulled to the slot; opacity of the rest
+  var TOP_N = 8, DIM = 0.35; // candidates pulled to a clicked slot; opacity of the rest
+  var PER_SLOT = 3, RING = 2; // frontier: candidates kept per slot; keep-out ring (in cells) around the assembly
   var STRIP_N = 12, INSET = 2; // samples per edge strip; px inside the core edge they are taken from
   var DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]], SIDES = ['top', 'right', 'bottom', 'left'], OPP = [2, 3, 0, 1];
 
@@ -82,36 +83,90 @@
     dimmed = [];
   }
 
+  // Puzzle, assembly, loose singles and layout cell size shared by the two fit entry points; null if not ready.
+  function scene() {
+    var u = util(), pz = u.getPuzzle();
+    if (!pz || !pz.isReady()) return null;
+    var all = u.pieces(pz), mainGroup = u.mainGroup(all);
+    if (!mainGroup) { console.warn('jigexFit: nothing assembled yet'); return null; }
+    var main = mainGroup.members, core = main[0].spec.core, canvas = document.getElementById('jigex-canvas');
+    var loose = all.filter(function (p) { return !p.group && p.state && p.state.name === 'resting'; });
+    return { u: u, pz: pz, all: all, main: main, loose: loose, subj: u.subject(main[0]), W: canvas.width, H: canvas.height,
+      slots: findSlots(main, core.width, core.height), pitch: core.width,
+      cellW: Math.max.apply(null, loose.map(function (p) { return p.width; })) + u.CELL_PAD,
+      cellH: Math.max.apply(null, loose.map(function (p) { return p.height; })) + u.CELL_PAD };
+  }
+
+  // Move each candidate piece to the free cell nearest its slot (claimed in grid `o`); returns the cells taken.
+  function pullToSlots(sc, picks, o, animate) {
+    var taken = [];
+    picks.forEach(function (k) {
+      var unit = sc.u.makeUnit([k.piece], sc.subj);
+      if (!sc.u.nearestCell(unit, [{ x: k.slot.x, y: k.slot.y }], o, sc.cellW, sc.cellH)) return;
+      k.piece.raise();
+      k.piece.move(unit.cell.x, unit.cell.y, { animate: animate, aniInterval: 500 });
+      taken.push({ position: unit.cell, width: sc.cellW, height: sc.cellH });
+    });
+    return taken;
+  }
+
+  function dimExcept(loose, keep) {
+    loose.forEach(function (p) { if (keep.indexOf(p) < 0) { p.opacity = DIM; dimmed.push(p); } });
+  }
+
   // Rank pieces for the slot nearest to canvas point (x, y); pull the best next to it and dim the rest.
   function fitAt(x, y) {
-    var u = util(), pz = u.getPuzzle();
-    if (!pz || !pz.isReady()) return 0;
-    var all = u.pieces(pz), mainGroup = u.mainGroup(all);
-    if (!mainGroup) { console.warn('jigexFit: nothing assembled yet'); return 0; }
-    var main = mainGroup.members, core = main[0].spec.core, pitchW = core.width, pitchH = core.height;
+    var sc = scene();
+    if (!sc) return 0;
     var slot = null, bd = Infinity;
-    findSlots(main, pitchW, pitchH).forEach(function (s) {
+    sc.slots.forEach(function (s) {
       var d = (s.x - x) * (s.x - x) + (s.y - y) * (s.y - y);
       if (d < bd) { bd = d; slot = s; }
     });
-    if (!slot || bd > pitchW * pitchW) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
-    var subj = u.subject(main[0]);
-    var loose = all.filter(function (p) { return !p.group && p.state && p.state.name === 'resting'; });
-    var ranked = rankCandidates(slot, loose, subj, pz), top = ranked.slice(0, TOP_N).map(function (r) { return r.piece; });
+    if (!slot || bd > sc.pitch * sc.pitch) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
+    var top = rankCandidates(slot, sc.loose, sc.subj, sc.pz).slice(0, TOP_N).map(function (r) { return r.piece; });
     restore();
-    var canvas = document.getElementById('jigex-canvas'), W = canvas.width, H = canvas.height;
-    var cellW = Math.max.apply(null, loose.map(function (p) { return p.width; })) + u.CELL_PAD;
-    var cellH = Math.max.apply(null, loose.map(function (p) { return p.height; })) + u.CELL_PAD;
-    var obstacles = all.filter(function (p) { return top.indexOf(p) < 0; });
-    var o = u.occupied(obstacles, W, H, cellW, cellH);
-    top.forEach(function (p) {
-      var unit = u.makeUnit([p], subj);
-      if (!u.nearestCell(unit, [{ x: slot.x, y: slot.y }], o, cellW, cellH)) return;
-      p.raise();
-      p.move(unit.cell.x, unit.cell.y, { animate: true, aniInterval: 500 });
-    });
-    loose.forEach(function (p) { if (top.indexOf(p) < 0) { p.opacity = DIM; dimmed.push(p); } });
+    var o = sc.u.occupied(sc.all.filter(function (p) { return top.indexOf(p) < 0; }), sc.W, sc.H, sc.cellW, sc.cellH);
+    pullToSlots(sc, top.map(function (p) { return { piece: p, slot: slot }; }), o, true);
+    dimExcept(sc.loose, top);
     return top.length;
+  }
+
+  // Frontier: for every open slot around the assembly pull its best PER_SLOT candidates to the rim,
+  // and park every other loose piece (as a gradient) outside a keep-out ring around the assembly.
+  function frontier() {
+    var sc = scene();
+    if (!sc) return 0;
+    var best = new Map();
+    sc.slots.forEach(function (slot) {
+      rankCandidates(slot, sc.loose, sc.subj, sc.pz).slice(0, PER_SLOT).forEach(function (r) {
+        var cur = best.get(r.piece);
+        if (!cur || r.score < cur.score) best.set(r.piece, { piece: r.piece, slot: slot, score: r.score });
+      });
+    });
+    var picks = Array.from(best.values()).sort(function (a, b) { return a.score - b.score; });
+    var chosen = picks.map(function (k) { return k.piece; });
+    restore();
+    var animate = sc.loose.length <= 200;
+    var o = sc.u.occupied(sc.main, sc.W, sc.H, sc.cellW, sc.cellH);
+    var taken = pullToSlots(sc, picks, o, animate);
+    // Keep-out zone: the assembly's box grown by RING cells, plus the cells the candidates now occupy.
+    var b = sc.u.bbox(sc.main), fence = { position: { x: (b.l + b.r) / 2, y: (b.t + b.b) / 2 },
+      width: b.r - b.l + 2 * RING * sc.cellW, height: b.b - b.t + 2 * RING * sc.cellH };
+    var obstacles = sc.main.concat([fence], taken);
+    var rest = sc.loose.filter(function (p) { return !best.has(p); }).map(function (p) { return sc.u.makeUnit([p], sc.subj); });
+    if (rest.length) {
+      rest = sc.u.orderByColor(rest);
+      var scales = [1, 0.85, 0.7, 0.6];
+      for (var i = 0; i < scales.length; i++)
+        if (sc.u.layout(rest, sc.W, sc.H, obstacles, sc.cellW * scales[i], sc.cellH * scales[i], 0) === rest.length) break;
+      rest.forEach(function (unit) {
+        if (!unit.cell) return;
+        unit.members[0].move(unit.cell.x, unit.cell.y, { animate: animate, aniInterval: 500 });
+      });
+    }
+    dimExcept(sc.loose, chosen);
+    return chosen.length;
   }
 
   function onPointer(e) {
@@ -119,14 +174,17 @@
     var canvas = document.getElementById('jigex-canvas'), r = canvas.getBoundingClientRect();
     var x = (e.clientX - r.left) * canvas.width / r.width, y = (e.clientY - r.top) * canvas.height / r.height;
     e.preventDefault(); e.stopImmediatePropagation();
-    var n = fitAt(x, y);
-    if (btn) btn.textContent = n ? '🎯 ' + n + ' candidates (Esc)' : '🎯 Click next to the assembly';
+    var sc = scene(), onAssembly = !!sc && sc.main.some(function (p) {
+      return Math.abs(p.position.x - x) < p.width / 2 && Math.abs(p.position.y - y) < p.height / 2;
+    });
+    var n = onAssembly ? frontier() : fitAt(x, y);
+    if (btn) btn.textContent = n ? '🎯 ' + n + ' candidates (Esc)' : '🎯 Click a gap or the assembly';
   }
 
   function setActive(on, button) {
     active = on; btn = button || btn;
     if (!on) restore();
-    if (btn) { btn.textContent = on ? '🎯 Click a gap… (Esc)' : '🎯 Fit'; btn.style.background = on ? '#c0392b' : ''; }
+    if (btn) { btn.textContent = on ? '🎯 Click a gap or the assembly… (Esc)' : '🎯 Fit'; btn.style.background = on ? '#c0392b' : ''; }
   }
 
   if (typeof document !== 'undefined') {
@@ -134,7 +192,7 @@
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && active) setActive(false); }, true);
   }
 
-  root.jigexFit = { at: fitAt, toggle: function (button) { setActive(!active, button); }, active: function () { return active; },
+  root.jigexFit = { at: fitAt, frontier: frontier, toggle: function (button) { setActive(!active, button); }, active: function () { return active; },
     findSlots: findSlots, rankCandidates: rankCandidates, edgeStrip: edgeStrip, coreCentre: coreCentre };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.jigexFit;
 })(typeof window !== 'undefined' ? window : globalThis);

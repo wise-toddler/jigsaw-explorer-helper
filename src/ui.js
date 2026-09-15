@@ -36,7 +36,8 @@
   sortBtn('🧲 Magnet', 'Pull each loose piece next to the matching-colour part of the assembly', 'magnet');
   sortBtn('📚 Stack', 'Stack loose pieces into colour decks to clear the table', 'stack');
   sortBtn('🃏 Deal', 'Spread the deck of the piece you are holding / last picked', 'deal');
-  add('🎯 Fit', 'Click an empty spot beside the assembly to see which pieces could fit there', function (btn) {
+  add('🎯 Fit', 'Click a gap beside the assembly: pieces that could fit come over. Click the assembly itself: ' +
+    'candidates for every gap gather around it and the rest are parked away', function (btn) {
     window.jigexFit.toggle(btn);
   });
   document.body.appendChild(host);
