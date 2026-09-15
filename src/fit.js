@@ -1,5 +1,5 @@
-// Fit mode: click an empty slot beside the assembly and the loose pieces that could go there are
-// ranked by shape (tab/hole must be complementary) and boundary-colour continuity, then pulled next to it.
+// Fit mode: click an empty slot beside the assembly and the loose pieces or small groups that could go there
+// are ranked by shape (tab/hole must be complementary) and boundary-colour continuity, then pulled next to it.
 (function (root) {
   'use strict';
   var TOP_N = 8, DIM = 0.35; // candidates pulled to a clicked slot; opacity of the rest
@@ -56,22 +56,37 @@
     return slots;
   }
 
-  // Loose pieces that could sit in `slot`, best first. Shape filtering only applies when pieces cannot rotate.
-  function rankCandidates(slot, loose, subj, pz) {
+  // Grid step from point a to point b in piece pitches, as a "dx,dy" key.
+  function stepKey(a, b, pitchW, pitchH) {
+    return Math.round((b.x - a.x) / pitchW) + ',' + Math.round((b.y - a.y) / pitchH);
+  }
+
+  // Units (single pieces or small groups) that could sit in `slot`, best first. A group is tried with each
+  // member as the piece going into the slot; the rest of the group must then land on squares the assembly
+  // does not occupy. Shape filtering only applies when pieces cannot rotate.
+  function rankCandidates(slot, units, subj, pz, main) {
     var cols = pz.pieces.numCols, rows = pz.pieces.numRows;
     var row = Math.floor((slot.id - 1) / cols), col = (slot.id - 1) % cols;
     var border = [row === 0, col === cols - 1, row === rows - 1, col === 0];
     var strips = slot.sides.map(function (s) { return { side: s.side, strip: edgeStrip(s.piece, OPP[s.side], subj, STRIP_N), tab: s.piece.spec.edges[SIDES[OPP[s.side]]].tab }; });
+    var pitchW = main[0].spec.core.width, pitchH = main[0].spec.core.height, taken = {};
+    main.forEach(function (p) { taken[stepKey(slot, coreCentre(p), pitchW, pitchH)] = true; });
     var ranked = [];
-    loose.forEach(function (p) {
-      var e = p.spec.edges, ok = true, score = 0;
-      if (!pz.rotatable) {
-        for (var k = 0; k < 4 && ok; k++) ok = e[SIDES[k]].border === border[k];
-        strips.forEach(function (s) { if (ok && e[SIDES[s.side]].tab === s.tab) ok = false; });
-      }
-      if (!ok) return;
-      strips.forEach(function (s) { score += stripDist(s.strip, edgeStrip(p, s.side, subj, STRIP_N)); });
-      ranked.push({ piece: p, score: score / strips.length });
+    units.forEach(function (unit) {
+      var best = null;
+      unit.members.forEach(function (p) {
+        var e = p.spec.edges, ok = true, score = 0, ca = coreCentre(p);
+        if (!pz.rotatable) {
+          for (var k = 0; k < 4 && ok; k++) ok = e[SIDES[k]].border === border[k];
+          strips.forEach(function (s) { if (ok && e[SIDES[s.side]].tab === s.tab) ok = false; });
+        }
+        unit.members.forEach(function (m) { if (ok && m !== p && taken[stepKey(ca, coreCentre(m), pitchW, pitchH)]) ok = false; });
+        if (!ok) return;
+        strips.forEach(function (s) { score += stripDist(s.strip, edgeStrip(p, s.side, subj, STRIP_N)); });
+        score /= strips.length;
+        if (!best || score < best.score) best = { unit: unit, piece: p, score: score };
+      });
+      if (best) ranked.push(best);
     });
     return ranked.sort(function (a, b) { return a.score - b.score; });
   }
@@ -83,38 +98,41 @@
     dimmed = [];
   }
 
-  // Puzzle, assembly, loose singles and layout cell size shared by the two fit entry points; null if not ready.
+  // Puzzle, assembly, movable units and layout cell size shared by the two fit entry points; null if not ready.
   function scene() {
     var u = util(), pz = u.getPuzzle();
     if (!pz || !pz.isReady()) return null;
-    var all = u.pieces(pz), mainGroup = u.mainGroup(all);
-    if (!mainGroup) { console.warn('jigexFit: nothing assembled yet'); return null; }
-    var main = mainGroup.members, core = main[0].spec.core, canvas = document.getElementById('jigex-canvas');
-    // movable = everything outside the assembly (small groups included); loose = the singles that can be candidates
-    var movable = all.filter(function (p) { return p.group !== mainGroup && p.state && p.state.name === 'resting'; });
-    var loose = movable.filter(function (p) { return !p.group; });
-    return { u: u, pz: pz, all: all, main: main, movable: movable, loose: loose, subj: u.subject(main[0]), W: canvas.width, H: canvas.height,
+    var all = u.pieces(pz), c = u.collectUnits(pz);
+    if (!c.mainGroup) { console.warn('jigexFit: nothing assembled yet'); return null; }
+    var main = c.mainGroup.members, core = main[0].spec.core, canvas = document.getElementById('jigex-canvas');
+    // movable = every piece outside the assembly; units = the same pieces as singles / small groups (candidates)
+    var movable = all.filter(function (p) { return p.group !== c.mainGroup && p.state && p.state.name === 'resting'; });
+    return { u: u, pz: pz, all: all, main: main, movable: movable, units: c.units, subj: c.subj, W: canvas.width, H: canvas.height,
       slots: findSlots(main, core.width, core.height), pitch: core.width,
-      cellW: Math.max.apply(null, loose.map(function (p) { return p.width; })) + u.CELL_PAD,
-      cellH: Math.max.apply(null, loose.map(function (p) { return p.height; })) + u.CELL_PAD };
+      cellW: Math.max.apply(null, movable.map(function (p) { return p.width; })) + u.CELL_PAD,
+      cellH: Math.max.apply(null, movable.map(function (p) { return p.height; })) + u.CELL_PAD };
   }
 
-  // Move each candidate piece to the free cell nearest its slot (claimed in grid `o`); returns the cells taken.
+  // Move each candidate unit to the free block nearest its slot (claimed in grid `o`); returns the space taken.
   // Moves are instant: an animated move can stall mid-tween while the game is idle, leaving the piece behind.
   function pullToSlots(sc, picks, o) {
     var taken = [];
     picks.forEach(function (k) {
-      var unit = sc.u.makeUnit([k.piece], sc.subj);
+      var unit = k.unit;
       if (!sc.u.nearestCell(unit, [{ x: k.slot.x, y: k.slot.y }], o, sc.cellW, sc.cellH)) return;
-      k.piece.raise();
-      k.piece.move(unit.cell.x, unit.cell.y);
-      taken.push({ position: unit.cell, width: sc.cellW, height: sc.cellH });
+      unit.members[0].raise();
+      unit.members[0].move(unit.cell.x + unit.dx, unit.cell.y + unit.dy);
+      taken.push({ position: unit.cell, width: unit.w + sc.u.CELL_PAD, height: unit.h + sc.u.CELL_PAD });
     });
     return taken;
   }
 
-  function dimExcept(loose, keep) {
-    loose.forEach(function (p) { if (keep.indexOf(p) < 0) { p.opacity = DIM; dimmed.push(p); } });
+  function dimExcept(movable, keep) {
+    movable.forEach(function (p) { if (keep.indexOf(p) < 0) { p.opacity = DIM; dimmed.push(p); } });
+  }
+
+  function membersOf(units) {
+    return units.reduce(function (a, u) { return a.concat(u.members); }, []);
   }
 
   // Rank pieces for the slot nearest to canvas point (x, y); pull the best next to it and dim the rest.
@@ -127,11 +145,12 @@
       if (d < bd) { bd = d; slot = s; }
     });
     if (!slot || bd > sc.pitch * sc.pitch) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
-    var top = rankCandidates(slot, sc.loose, sc.subj, sc.pz).slice(0, TOP_N).map(function (r) { return r.piece; });
+    var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
+    var chosen = membersOf(top.map(function (r) { return r.unit; }));
     restore();
-    var o = sc.u.occupied(sc.all.filter(function (p) { return top.indexOf(p) < 0; }), sc.W, sc.H, sc.cellW, sc.cellH);
-    pullToSlots(sc, top.map(function (p) { return { piece: p, slot: slot }; }), o);
-    dimExcept(sc.movable, top);
+    var o = sc.u.occupied(sc.all.filter(function (p) { return chosen.indexOf(p) < 0; }), sc.W, sc.H, sc.cellW, sc.cellH);
+    pullToSlots(sc, top.map(function (r) { return { unit: r.unit, slot: slot }; }), o);
+    dimExcept(sc.movable, chosen);
     return top.length;
   }
 
@@ -142,13 +161,13 @@
     if (!sc) return 0;
     var best = new Map();
     sc.slots.forEach(function (slot) {
-      rankCandidates(slot, sc.loose, sc.subj, sc.pz).slice(0, PER_SLOT).forEach(function (r) {
-        var cur = best.get(r.piece);
-        if (!cur || r.score < cur.score) best.set(r.piece, { piece: r.piece, slot: slot, score: r.score });
+      rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, PER_SLOT).forEach(function (r) {
+        var cur = best.get(r.unit);
+        if (!cur || r.score < cur.score) best.set(r.unit, { unit: r.unit, slot: slot, score: r.score });
       });
     });
     var picks = Array.from(best.values()).sort(function (a, b) { return a.score - b.score; });
-    var chosen = picks.map(function (k) { return k.piece; });
+    var chosen = membersOf(picks.map(function (k) { return k.unit; }));
     restore();
     var o = sc.u.occupied(sc.main, sc.W, sc.H, sc.cellW, sc.cellH);
     var taken = pullToSlots(sc, picks, o);
@@ -157,7 +176,7 @@
       width: b.r - b.l + 2 * RING * sc.cellW, height: b.b - b.t + 2 * RING * sc.cellH };
     var obstacles = sc.main.concat([fence], taken);
     // Everything else — singles and small groups alike — is parked outside the ring as a gradient.
-    var rest = sc.u.collectUnits(sc.pz).units.filter(function (unit) { return !best.has(unit.members[0]); });
+    var rest = sc.units.filter(function (unit) { return !best.has(unit); });
     if (rest.length) {
       rest = sc.u.orderByColor(rest);
       var scales = [1, 0.85, 0.7, 0.6];
@@ -168,7 +187,7 @@
       });
     }
     dimExcept(sc.movable, chosen);
-    return chosen.length;
+    return picks.length;
   }
 
   function onPointer(e) {

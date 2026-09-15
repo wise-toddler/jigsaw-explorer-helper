@@ -2,8 +2,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { makePuzzle, CORE } = require('./fixture');
-require('../src/core');
+const sort = require('../src/core');
 const fit = require('../src/fit');
+const unitsOf = (P) => sort.util.collectUnits(P.pz).units;
+const mainOf = (P) => P.pieces.filter((p) => p.group && p.group === sort.util.mainGroup(P.pieces));
 
 test('findSlots merges the open sides that border the same empty spot', () => {
   const P = makePuzzle({ rows: 4, cols: 4 });
@@ -19,11 +21,11 @@ test('rankCandidates puts the true piece first and rejects incompatible tabs', (
   const subj = P.subject.getContext().getImageData();
   const assembled = [1, 2, 3, 6, 7, 8, 11, 12, 13];
   P.join(assembled, 200, 200);
-  const loose = P.pieces.filter((p) => !p.group);
-  const slots = fit.findSlots(P.pieces.filter((p) => p.group), CORE, CORE);
+  const units = unitsOf(P), main = mainOf(P);
+  const slots = fit.findSlots(main, CORE, CORE);
   let firsts = 0;
   slots.forEach((slot) => {
-    const ranked = fit.rankCandidates(slot, loose, subj, P.pz);
+    const ranked = fit.rankCandidates(slot, units, subj, P.pz, main);
     ranked.forEach((r) => slot.sides.forEach((s) => {
       const sideName = ['top', 'right', 'bottom', 'left'][s.side], oppName = ['bottom', 'left', 'top', 'right'][s.side];
       assert.notEqual(r.piece.spec.edges[sideName].tab, s.piece.spec.edges[oppName].tab, 'tab meets hole');
@@ -33,6 +35,22 @@ test('rankCandidates puts the true piece first and rejects incompatible tabs', (
     if (rank === 0) firsts++;
   });
   assert.ok(firsts >= slots.length * 0.75, 'true piece is first for most slots');
+});
+
+test('rankCandidates accepts a small group through the member that fits, never through one that collides', () => {
+  const P = makePuzzle({ rows: 5, cols: 5, seed: 21 });
+  const subj = P.subject.getContext().getImageData();
+  P.join([1, 2, 3, 6, 7, 8, 11, 12, 13], 200, 200);
+  const pair = P.join([4, 5], 900, 900); // true home: right of piece 3, top row
+  const units = unitsOf(P), main = mainOf(P);
+  const slot4 = fit.findSlots(main, CORE, CORE).find((s) => s.id === 4);
+  const ids = (r) => r.unit.members.map((m) => m.id);
+  const ranked = fit.rankCandidates(slot4, units, subj, P.pz, main);
+  assert.deepEqual(ids(ranked[0]), [4, 5], 'the pair is the best candidate for slot 4');
+  assert.equal(ranked[0].piece.id, 4, 'entered through member 4: with 5 in the slot, 4 would land on assembled piece 3');
+  const slot9 = fit.findSlots(main, CORE, CORE).find((s) => s.id === 9);
+  const viaPair = fit.rankCandidates(slot9, units, subj, P.pz, main).find((r) => ids(r).length === 2);
+  assert.ok(!viaPair || viaPair.piece.id === 5, 'for slot 9 only member 5 could ever be tried (4 would sit on piece 8)');
 });
 
 test('frontier gathers candidates for every slot at the rim and parks the rest outside the ring', () => {
