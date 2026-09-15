@@ -2,19 +2,20 @@
 // are ranked by shape (tab/hole must be complementary) and boundary-colour continuity, then pulled next to it.
 (function (root) {
   'use strict';
+  if (root.jigexFit) return; // bookmarklet on top of the extension must not register listeners twice
   var TOP_N = 8, DIM = 0.35; // candidates pulled to a clicked slot; opacity of the rest
   var PER_SLOT = 3, RING = 2; // frontier: candidates kept per slot; keep-out ring (in cells) around the assembly
   var STRIP_N = 12, INSET = 2; // samples per edge strip; px inside the core edge they are taken from
-  var DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]], SIDES = ['top', 'right', 'bottom', 'left'], OPP = [2, 3, 0, 1];
+  var SIDES = ['top', 'right', 'bottom', 'left'], OPP = [2, 3, 0, 1];
 
   function util() { return root.jigexColorSort.util; }
 
-  // Lab samples along one side of a piece's core, just inside the edge, top→bottom or left→right.
-  function edgeStrip(piece, side, subj, n) {
+  // STRIP_N Lab samples along one side of a piece's core, just inside the edge, top→bottom or left→right.
+  function edgeStrip(piece, side, subj) {
     var s = piece.spec, bb = s.image.bounds, core = s.core, out = [], toLab = util().rgbToLab;
     var x0 = bb.x + core.x, y0 = bb.y + core.y, w = core.width, h = core.height;
-    for (var i = 0; i < n; i++) {
-      var t = (i + 0.5) / n, x, y;
+    for (var i = 0; i < STRIP_N; i++) {
+      var t = (i + 0.5) / STRIP_N, x, y;
       if (side === 0) { x = x0 + t * w; y = y0 + INSET; }
       else if (side === 2) { x = x0 + t * w; y = y0 + h - 1 - INSET; }
       else if (side === 3) { x = x0 + INSET; y = y0 + t * h; }
@@ -40,12 +41,12 @@
 
   // Empty slots next to the assembly: one per open side, merged when several pieces border the same slot.
   function findSlots(main, pitchW, pitchH) {
-    var slots = [];
+    var slots = [], dirs = util().DIRS;
     main.forEach(function (p) {
       var cc = coreCentre(p);
       (p.neighbors || []).forEach(function (n, k) {
         if (!n || n.group === p.group) return;
-        var x = cc.x + DIRS[k][0] * pitchW, y = cc.y + DIRS[k][1] * pitchH, slot = null;
+        var x = cc.x + dirs[k][0] * pitchW, y = cc.y + dirs[k][1] * pitchH, slot = null;
         for (var i = 0; i < slots.length; i++)
           if (Math.abs(slots[i].x - x) < pitchW / 3 && Math.abs(slots[i].y - y) < pitchH / 3) { slot = slots[i]; break; }
         // id is the true neighbour's id: used only to tell whether the slot lies on the puzzle border.
@@ -68,7 +69,7 @@
     var cols = pz.pieces.numCols, rows = pz.pieces.numRows;
     var row = Math.floor((slot.id - 1) / cols), col = (slot.id - 1) % cols;
     var border = [row === 0, col === cols - 1, row === rows - 1, col === 0];
-    var strips = slot.sides.map(function (s) { return { side: s.side, strip: edgeStrip(s.piece, OPP[s.side], subj, STRIP_N), tab: s.piece.spec.edges[SIDES[OPP[s.side]]].tab }; });
+    var strips = slot.sides.map(function (s) { return { side: s.side, strip: edgeStrip(s.piece, OPP[s.side], subj), tab: s.piece.spec.edges[SIDES[OPP[s.side]]].tab }; });
     var pitchW = main[0].spec.core.width, pitchH = main[0].spec.core.height, taken = {};
     main.forEach(function (p) { taken[stepKey(slot, coreCentre(p), pitchW, pitchH)] = true; });
     var ranked = [];
@@ -82,7 +83,7 @@
         }
         unit.members.forEach(function (m) { if (ok && m !== p && taken[stepKey(ca, coreCentre(m), pitchW, pitchH)]) ok = false; });
         if (!ok) return;
-        strips.forEach(function (s) { score += stripDist(s.strip, edgeStrip(p, s.side, subj, STRIP_N)); });
+        strips.forEach(function (s) { score += stripDist(s.strip, edgeStrip(p, s.side, subj)); });
         score /= strips.length;
         if (!best || score < best.score) best = { unit: unit, piece: p, score: score };
       });
@@ -107,21 +108,32 @@
     var main = c.mainGroup.members, core = main[0].spec.core, canvas = document.getElementById('jigex-canvas');
     // movable = every piece outside the assembly; units = the same pieces as singles / small groups (candidates)
     var movable = all.filter(function (p) { return p.group !== c.mainGroup && p.state && p.state.name === 'resting'; });
+    if (!movable.length) { console.warn('jigexFit: no loose pieces left'); return null; }
     return { u: u, pz: pz, all: all, main: main, movable: movable, units: c.units, subj: c.subj, W: canvas.width, H: canvas.height,
       slots: findSlots(main, core.width, core.height), pitch: core.width,
       cellW: Math.max.apply(null, movable.map(function (p) { return p.width; })) + u.CELL_PAD,
       cellH: Math.max.apply(null, movable.map(function (p) { return p.height; })) + u.CELL_PAD };
   }
 
+  // Centre of a unit's bounding box on the table (dx/dy is the first member's offset from it).
+  function unitCentre(u) {
+    return { x: u.members[0].position.x - u.dx, y: u.members[0].position.y - u.dy };
+  }
+
+  // Put a unit on the cell it was assigned. Moves are instant: an animated move can stall mid-tween while
+  // the game is idle, leaving the piece behind.
+  function settle(u) {
+    u.members[0].move(u.cell.x + u.dx, u.cell.y + u.dy);
+  }
+
   // Move each candidate unit to the free block nearest its slot (claimed in grid `o`); returns the space taken.
-  // Moves are instant: an animated move can stall mid-tween while the game is idle, leaving the piece behind.
   function pullToSlots(sc, picks, o) {
     var taken = [];
     picks.forEach(function (k) {
       var unit = k.unit;
       if (!sc.u.nearestCell(unit, [{ x: k.slot.x, y: k.slot.y }], o, sc.cellW, sc.cellH)) return;
       unit.members[0].raise();
-      unit.members[0].move(unit.cell.x + unit.dx, unit.cell.y + unit.dy);
+      settle(unit);
       taken.push({ position: unit.cell, width: unit.w + sc.u.CELL_PAD, height: unit.h + sc.u.CELL_PAD });
     });
     return taken;
@@ -131,9 +143,9 @@
   // the assembly, the candidates and every other piece.
   function evict(sc, candidates, taken) {
     var hit = function (u) {
+      var c = unitCentre(u);
       return taken.some(function (t) {
-        return Math.abs(u.members[0].position.x - u.dx - t.position.x) < (u.w + t.width) / 2 &&
-          Math.abs(u.members[0].position.y - u.dy - t.position.y) < (u.h + t.height) / 2;
+        return Math.abs(c.x - t.position.x) < (u.w + t.width) / 2 && Math.abs(c.y - t.position.y) < (u.h + t.height) / 2;
       });
     };
     var victims = sc.units.filter(function (u) { return candidates.indexOf(u) < 0 && hit(u); });
@@ -141,8 +153,7 @@
     var stay = sc.all.filter(function (p) { return !victims.some(function (u) { return u.members.indexOf(p) >= 0; }); });
     var o = sc.u.occupied(stay.concat(taken), sc.W, sc.H, sc.cellW, sc.cellH);
     victims.forEach(function (u) {
-      var at = { x: u.members[0].position.x - u.dx, y: u.members[0].position.y - u.dy };
-      if (sc.u.nearestCell(u, [at], o, sc.cellW, sc.cellH)) u.members[0].move(u.cell.x + u.dx, u.cell.y + u.dy);
+      if (sc.u.nearestCell(u, [unitCentre(u)], o, sc.cellW, sc.cellH)) settle(u);
     });
   }
 
@@ -196,7 +207,7 @@
     // Keep-out zone: the assembly's box grown by RING cells, plus the cells the candidates now occupy.
     var b = sc.u.bbox(sc.main), fence = { position: { x: (b.l + b.r) / 2, y: (b.t + b.b) / 2 },
       width: b.r - b.l + 2 * RING * sc.cellW, height: b.b - b.t + 2 * RING * sc.cellH };
-    var obstacles = sc.main.concat([fence], taken);
+    var obstacles = [fence].concat(taken);
     // Everything else — singles and small groups alike — is parked outside the ring as a gradient.
     var rest = sc.units.filter(function (unit) { return !best.has(unit); });
     if (rest.length) {
@@ -204,16 +215,14 @@
       var scales = [1, 0.85, 0.7, 0.6];
       for (var i = 0; i < scales.length; i++)
         if (sc.u.layout(rest, sc.W, sc.H, obstacles, sc.cellW * scales[i], sc.cellH * scales[i], 0) === rest.length) break;
-      rest.forEach(function (unit) {
-        if (unit.cell) unit.members[0].move(unit.cell.x + unit.dx, unit.cell.y + unit.dy);
-      });
+      rest.forEach(function (unit) { if (unit.cell) settle(unit); });
     }
     dimExcept(sc.movable, chosen);
     return picks.length;
   }
 
   function onPointer(e) {
-    if (!active || e.button) return;
+    if (!active || e.button || (e.target && e.target.closest && e.target.closest('#jigex-colorsort'))) return; // toolbar clicks are not slot clicks
     var canvas = document.getElementById('jigex-canvas'), r = canvas.getBoundingClientRect();
     var x = (e.clientX - r.left) * canvas.width / r.width, y = (e.clientY - r.top) * canvas.height / r.height;
     e.preventDefault(); e.stopImmediatePropagation();

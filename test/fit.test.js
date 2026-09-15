@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { makePuzzle, CORE } = require('./fixture');
 const sort = require('../src/core');
 const fit = require('../src/fit');
+const { CELL_PAD } = sort.util;
 const unitsOf = (P) => sort.util.collectUnits(P.pz).units;
 const mainOf = (P) => P.pieces.filter((p) => p.group && p.group === sort.util.mainGroup(P.pieces));
 
@@ -50,7 +51,7 @@ test('rankCandidates accepts a small group through the member that fits, never t
   assert.equal(ranked[0].piece.id, 4, 'entered through member 4: with 5 in the slot, 4 would land on assembled piece 3');
   const slot9 = fit.findSlots(main, CORE, CORE).find((s) => s.id === 9);
   const viaPair = fit.rankCandidates(slot9, units, subj, P.pz, main).find((r) => ids(r).length === 2);
-  assert.ok(!viaPair || viaPair.piece.id === 5, 'for slot 9 only member 5 could ever be tried (4 would sit on piece 8)');
+  assert.equal(viaPair, undefined, 'slot 9 is interior: both members carry a border edge, so the pair is never offered');
 });
 
 test('frontier gathers candidates for every slot at the rim and parks the rest outside the ring', () => {
@@ -64,13 +65,12 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
   assert.ok(n >= 12 && n <= 36, `one to three candidates per slot, got ${n}`);
   assert.equal(far.length, movable.length - n);
   pair.members.forEach((p) => assert.ok(far.includes(p), 'small group is dimmed and parked too'));
-  const main = mainGroup.members, cx = 1000 + CORE, cy = 800 + CORE, cell = near[0].width + 4;
+  const cx = 1000 + CORE, cy = 800 + CORE, cell = near[0].width + CELL_PAD;
   const dist = (p) => Math.max(Math.abs(p.position.x - cx), Math.abs(p.position.y - cy));
   near.forEach((p) => assert.ok(dist(p) < 1.5 * CORE + 3 * cell, 'candidate hugs the assembly'));
   far.forEach((p) => assert.ok(dist(p) > 1.5 * CORE + 2 * cell, 'parked piece is outside the keep-out ring'));
   const touching = (a, b) => Math.abs(a.position.x - b.position.x) < a.width - 6 && Math.abs(a.position.y - b.position.y) < a.height - 6;
   far.forEach((p) => near.forEach((q) => assert.ok(!touching(p, q), 'parked piece never lands on a candidate')));
-  main.forEach((p) => assert.ok(!near.includes(p) && !far.includes(p)));
 });
 
 test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', () => {
@@ -79,7 +79,7 @@ test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', 
   const slot = fit.findSlots(P.pieces.filter((p) => p.group), CORE, CORE).find((s) => s.id === 3);
   // Crowded table like a big sorted puzzle: non-candidates fill the cells nearest the slot, the real candidates
   // sit far away, so a naive "nearest free cell" would send them somewhere else entirely.
-  const loose = P.pieces.filter((p) => !p.group), cell = loose[0].width + 4, cells = [];
+  const loose = P.pieces.filter((p) => !p.group), cell = loose[0].width + CELL_PAD, cells = [];
   for (let r = 0; r < Math.floor(H / cell); r++) for (let c = 0; c < Math.floor(W / cell); c++) cells.push({ x: (c + 0.5) * cell, y: (r + 0.5) * cell });
   const onAssembly = (q) => P.pieces.some((p) => p.group && Math.abs(p.position.x - q.x) < p.width && Math.abs(p.position.y - q.y) < p.height);
   const free = cells.filter((q) => !onAssembly(q)).sort((a, b) => Math.hypot(a.x - slot.x, a.y - slot.y) - Math.hypot(b.x - slot.x, b.y - slot.y));

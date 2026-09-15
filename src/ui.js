@@ -22,10 +22,9 @@
     btn.textContent = label;
     btn.title = title + ' (Alt+' + key + ')';
     btn.style.cssText = BTN;
-    btn.addEventListener('click', function () { onClick(btn, label); });
-    keys['Key' + key] = function () { onClick(btn, label); };
+    btn.addEventListener('click', function () { onClick(btn); });
+    keys['Key' + key] = function () { onClick(btn); };
     host.appendChild(btn);
-    return btn;
   }
 
   function sortBtn(label, title, key, mode) {

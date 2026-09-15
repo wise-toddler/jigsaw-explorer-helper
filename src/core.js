@@ -3,6 +3,7 @@
   'use strict';
   if (root.jigexColorSort) return;
   var CELL_PAD = 4; // px of breathing room added to a piece's size when sizing layout cells
+  var DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // neighbors[] order: top, right, bottom, left
 
   function getPlayer() { var g = root.jigexGlobals; return g && g.modules && g.modules.player; }
   function getPuzzle() { var p = getPlayer(); return p && p.Puzzle && p.Puzzle.curr; }
@@ -52,6 +53,7 @@
     return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
   }
 
+  // Squared Lab distance (no sqrt: only ever compared or summed).
   function dist(a, b) {
     var p = a.lab, q = b.lab;
     return (p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]) + (p[2] - q[2]) * (p[2] - q[2]);
@@ -60,6 +62,7 @@
   // Gradient order: start at the most extreme colour, chain nearest neighbours, then smooth with 2-opt.
   function orderByColor(units) {
     var n = units.length, i, j;
+    if (!n) return [];
     var mean = [0, 0, 0];
     units.forEach(function (u) { for (i = 0; i < 3; i++) mean[i] += u.lab[i] / n; });
     var start = 0, best = -1;
@@ -187,14 +190,13 @@
   }
 
   // Magnet: each unit goes to the nearest free cell beside the assembly piece whose colour matches it best.
-  // neighbors[] is [top, right, bottom, left]; a side is open when that neighbour is not in the assembly yet.
+  // A side is open when that neighbour is not in the assembly yet.
   function magnet(units, main, subj, W, H, cellW, cellH) {
     var o = occupied(main, W, H, cellW, cellH);
-    var dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
     var anchors = main.map(function (p) {
       var pts = [];
       (p.neighbors || []).forEach(function (n, k) {
-        if (n && n.group !== p.group) pts.push({ x: p.position.x + dirs[k][0] * cellW, y: p.position.y + dirs[k][1] * cellH });
+        if (n && n.group !== p.group) pts.push({ x: p.position.x + DIRS[k][0] * cellW, y: p.position.y + DIRS[k][1] * cellH });
       });
       return { lab: rgbToLab(avgColor(p, subj)), pts: pts.length ? pts : [{ x: p.position.x, y: p.position.y }], open: !!pts.length };
     });
@@ -235,6 +237,7 @@
     var o = occupied(main, W, H, cellW, cellH), spots = [];
     for (var r = o.rows - 1; r >= 0 && spots.length < 64; r--)
       for (var c = 0; c < o.cols; c += 2) if (!o.grid[r][c]) spots.push({ x: (c + 0.5) * cellW, y: (r + 0.5) * cellH });
+    if (!spots.length) spots.push({ x: W / 2, y: H / 2 }); // table fully covered: pile everything mid-table
     var pile = -1, j = 0;
     units.forEach(function (u) {
       if (u.newBand || pile < 0) { pile++; j = 0; }
@@ -330,7 +333,7 @@
   }
 
   // Shared helpers for fit.js and the unit tests.
-  root.jigexColorSort.util = { CELL_PAD: CELL_PAD, getPuzzle: getPuzzle, pieces: pieces, mainGroup: mainGroup, subject: subject,
+  root.jigexColorSort.util = { CELL_PAD: CELL_PAD, DIRS: DIRS, getPuzzle: getPuzzle, pieces: pieces, mainGroup: mainGroup, subject: subject,
     avgColor: avgColor, rgbToLab: rgbToLab, dist: dist, kmeans: kmeans, orderByColor: orderByColor, occupied: occupied, span: span,
     nearestCell: nearestCell, layout: layout, magnet: magnet, stack: stack, deal: deal, makeUnit: makeUnit, bbox: bbox,
     collectUnits: collectUnits };

@@ -28,6 +28,7 @@ test('orderByColor yields a smoother chain than the input order', () => {
   assert.equal(ordered.length, 40);
   assert.equal(new Set(ordered).size, 40, 'every unit exactly once');
   assert.ok(cost(ordered) < cost(units) * 0.5, 'chain cost at least halved');
+  assert.deepEqual(U.orderByColor([]), [], 'empty input stays empty (deal on an already-assembled deck relies on it)');
 });
 
 test('kmeans separates three clearly distinct colours into pure piles', () => {
