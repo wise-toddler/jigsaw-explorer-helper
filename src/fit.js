@@ -148,7 +148,9 @@
     var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
     var chosen = membersOf(top.map(function (r) { return r.unit; }));
     restore();
-    var o = sc.u.occupied(sc.all.filter(function (p) { return chosen.indexOf(p) < 0; }), sc.W, sc.H, sc.cellW, sc.cellH);
+    // Only the assembly blocks cells: on a crowded table the nearest truly free cell can be far away,
+    // and candidates must land beside the slot even if that means sitting on top of dimmed pieces.
+    var o = sc.u.occupied(sc.main, sc.W, sc.H, sc.cellW, sc.cellH);
     pullToSlots(sc, top.map(function (r) { return { unit: r.unit, slot: slot }; }), o);
     dimExcept(sc.movable, chosen);
     return top.length;

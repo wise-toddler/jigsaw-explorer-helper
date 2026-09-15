@@ -76,14 +76,16 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
 test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', () => {
   const P = makePuzzle({ rows: 5, cols: 5, seed: 4 }), { W, H } = P.install(1600, 1200);
   P.join([1, 2, 6, 7], 400, 400);
-  P.scatter(W, H);
+  // Crowded table: every loose piece packed in a tight grid around the assembly, like a big sorted puzzle.
+  const loose = P.pieces.filter((p) => !p.group), cell = loose[0].width + 4;
+  loose.forEach((p, i) => p.move(200 + (i % 7) * cell, 200 + Math.floor(i / 7) * cell));
   const slot = fit.findSlots(P.pieces.filter((p) => p.group), CORE, CORE).find((s) => s.id === 3);
   const n = fit.at(slot.x + 5, slot.y - 5);
   assert.ok(n > 0 && n <= 8);
-  const loose = P.pieces.filter((p) => !p.group), near = loose.filter((p) => p.opacity === 1), dim = loose.filter((p) => p.opacity < 1);
+  const near = loose.filter((p) => p.opacity === 1), dim = loose.filter((p) => p.opacity < 1);
   assert.equal(near.length, n);
   assert.equal(dim.length, loose.length - n);
-  near.forEach((p) => assert.ok(Math.hypot(p.position.x - slot.x, p.position.y - slot.y) < 4 * CORE, 'candidate sits next to the slot'));
+  near.forEach((p) => assert.ok(Math.hypot(p.position.x - slot.x, p.position.y - slot.y) < 2.5 * cell, 'candidate sits right beside the slot even on a full table'));
   fit.toggle(); fit.toggle(); // on, then off → restore
   assert.ok(loose.every((p) => p.opacity === 1));
 });
