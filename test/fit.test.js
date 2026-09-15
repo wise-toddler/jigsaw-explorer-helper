@@ -93,6 +93,8 @@ test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', 
   assert.equal(near.length, n);
   assert.equal(dim.length, loose.length - n);
   near.forEach((p) => assert.ok(Math.hypot(p.position.x - slot.x, p.position.y - slot.y) < 2.5 * cell, 'candidate sits right beside the slot even on a full table'));
+  const touching = (a, b) => Math.abs(a.position.x - b.position.x) < a.width - 6 && Math.abs(a.position.y - b.position.y) < a.height - 6;
+  near.forEach((p) => dim.forEach((q) => assert.ok(!touching(p, q), 'pieces that were in the way got evicted, no overlap left')));
   fit.toggle(); fit.toggle(); // on, then off → restore
   assert.ok(loose.every((p) => p.opacity === 1));
 });

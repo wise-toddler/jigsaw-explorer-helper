@@ -127,6 +127,25 @@
     return taken;
   }
 
+  // Move every non-candidate unit that overlaps one of the `taken` blocks to the nearest cell that is free of
+  // the assembly, the candidates and every other piece.
+  function evict(sc, candidates, taken) {
+    var hit = function (u) {
+      return taken.some(function (t) {
+        return Math.abs(u.members[0].position.x - u.dx - t.position.x) < (u.w + t.width) / 2 &&
+          Math.abs(u.members[0].position.y - u.dy - t.position.y) < (u.h + t.height) / 2;
+      });
+    };
+    var victims = sc.units.filter(function (u) { return candidates.indexOf(u) < 0 && hit(u); });
+    if (!victims.length) return;
+    var stay = sc.all.filter(function (p) { return !victims.some(function (u) { return u.members.indexOf(p) >= 0; }); });
+    var o = sc.u.occupied(stay.concat(taken), sc.W, sc.H, sc.cellW, sc.cellH);
+    victims.forEach(function (u) {
+      var at = { x: u.members[0].position.x - u.dx, y: u.members[0].position.y - u.dy };
+      if (sc.u.nearestCell(u, [at], o, sc.cellW, sc.cellH)) u.members[0].move(u.cell.x + u.dx, u.cell.y + u.dy);
+    });
+  }
+
   function dimExcept(movable, keep) {
     movable.forEach(function (p) { if (keep.indexOf(p) < 0) { p.opacity = DIM; dimmed.push(p); } });
   }
@@ -146,12 +165,13 @@
     });
     if (!slot || bd > sc.pitch * sc.pitch) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
     var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
-    var chosen = membersOf(top.map(function (r) { return r.unit; }));
+    var topUnits = top.map(function (r) { return r.unit; }), chosen = membersOf(topUnits);
     restore();
-    // Only the assembly blocks cells: on a crowded table the nearest truly free cell can be far away,
-    // and candidates must land beside the slot even if that means sitting on top of dimmed pieces.
+    // Only the assembly blocks candidate cells (on a crowded table the nearest truly free cell can be far away);
+    // whatever was sitting in those cells is evicted to the nearest free spot so nothing ends up overlapping.
     var o = sc.u.occupied(sc.main, sc.W, sc.H, sc.cellW, sc.cellH);
-    pullToSlots(sc, top.map(function (r) { return { unit: r.unit, slot: slot }; }), o);
+    var taken = pullToSlots(sc, top.map(function (r) { return { unit: r.unit, slot: slot }; }), o);
+    evict(sc, topUnits, taken);
     dimExcept(sc.movable, chosen);
     return top.length;
   }
