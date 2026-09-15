@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Jigsaw Explorer Helper",
+  "version": "0.2.0",
+  "description": "Colour sorting, piles, stacks and fit hints for Jigsaw Explorer puzzles.",
+  "content_scripts": [
+    {
+      "matches": ["*://www.jigsawexplorer.com/online-jigsaw-puzzle-player.html*", "*://jigex.com/*"],
+      "js": ["src/core.js", "src/fit.js", "src/ui.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    }
+  ]
+}

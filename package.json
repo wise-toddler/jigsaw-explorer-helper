@@ -1,0 +1,14 @@
+{
+  "name": "jigsaw-explorer-helper",
+  "version": "0.2.0",
+  "description": "Browser extension: colour sorting, piles, stacks and fit hints for Jigsaw Explorer puzzles.",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/",
+    "build": "node scripts/build-bookmarklet.js"
+  },
+  "devDependencies": {
+    "terser": "^5.31.0"
+  },
+  "license": "MIT"
+}
