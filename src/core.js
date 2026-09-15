@@ -135,7 +135,11 @@
   // A unit is a single piece or a small group; moved via its first member (move() carries the group).
   function makeUnit(members, subj) {
     var b = bbox(members), c = [0, 0, 0];
-    members.forEach(function (p) { var a = avgColor(p, subj); c[0] += a[0]; c[1] += a[1]; c[2] += a[2]; });
+    members.forEach(function (p) {
+      // cached per piece: the subject never changes mid-game, and fit's snap loop rebuilds units many times
+      if (!p._csAvg || p._csAvg.subj !== subj) p._csAvg = { subj: subj, rgb: avgColor(p, subj) };
+      var a = p._csAvg.rgb; c[0] += a[0]; c[1] += a[1]; c[2] += a[2];
+    });
     return { members: members, w: b.r - b.l, h: b.b - b.t, single: members.length === 1,
       lab: rgbToLab(c.map(function (v) { return v / members.length; })),
       dx: members[0].position.x - (b.l + b.r) / 2, dy: members[0].position.y - (b.t + b.b) / 2 };

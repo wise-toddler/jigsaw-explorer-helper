@@ -93,7 +93,7 @@
     return ranked.sort(function (a, b) { return a.score - b.score; });
   }
 
-  var dimmed = [], active = false, btn = null, snapped = false, lastSlots = 0;
+  var dimmed = [], active = false, btn = null, snapped = false, lastSlots = 0, lastSnaps = 0;
 
   function restore() {
     dimmed.forEach(function (p) { if (!p.isDisposed) p.opacity = 1; });
@@ -204,19 +204,37 @@
     return top.length;
   }
 
-  // Frontier: for every open slot around the assembly pull its best PER_SLOT candidates to the rim,
-  // and park every other loose piece (as a gradient) outside a keep-out ring around the assembly.
-  // With a click point, only the few open slots around it are considered (the ones the player is working on).
-  function frontier(x, y) {
-    var sc = scene();
-    if (!sc) return 0;
-    var slots = sc.slots;
-    if (typeof x === 'number') {
-      var byDist = slots.slice().sort(function (a, b) { return Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y); });
-      slots = byDist.filter(function (s) { return Math.hypot(s.x - x, s.y - y) <= NEAR * sc.pitch; }).slice(0, NEAR_SLOTS);
-      if (!slots.length) slots = byDist.slice(0, 1);
+  // Open slots within NEAR pitches of any of `pts` (nearest first, at most NEAR_SLOTS); all slots when pts is null.
+  function slotsNear(sc, pts) {
+    if (!pts) return sc.slots;
+    var d = function (s) { var m = Infinity; pts.forEach(function (p) { m = Math.min(m, Math.hypot(s.x - p.x, s.y - p.y)); }); return m; };
+    var byDist = sc.slots.slice().sort(function (a, b) { return d(a) - d(b); });
+    var near = byDist.filter(function (s) { return d(s) <= NEAR * sc.pitch; }).slice(0, NEAR_SLOTS);
+    return near.length ? near : byDist.slice(0, 1);
+  }
+
+  // Frontier: around the click (or the whole rim when called without a point) keep dropping the best
+  // candidates onto the open slots for as long as the player snaps one in — each snap opens new slots next
+  // to it, so the fill spreads out from the click. Whatever is left is pulled to the rim, the rest parked.
+  function frontier(x, y, opts) {
+    var pts = typeof x === 'number' ? [{ x: x, y: y }] : null, sc, slots, snaps = 0;
+    for (var round = 0; round < 1000; round++) {
+      sc = scene();
+      if (!sc) return 0;
+      slots = slotsNear(sc, pts);
+      if (opts && opts.snap === false) break;
+      var hit = null;
+      slots.some(function (slot) {
+        return rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, PER_SLOT).some(function (cand) {
+          if (trySnap(sc, cand, slot)) { hit = cand; return true; }
+          return false;
+        });
+      });
+      if (!hit) break;
+      snaps++;
+      if (pts) pts.push(coreCentre(hit.piece));
     }
-    lastSlots = slots.length;
+    snapped = snaps > 0; lastSnaps = snaps; lastSlots = slots.length;
     var best = new Map();
     slots.forEach(function (slot) {
       rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, PER_SLOT).forEach(function (r) {
@@ -258,10 +276,12 @@
       var cc = coreCentre(p), core = p.spec.core;
       return Math.abs(cc.x - x) < core.width / 2 && Math.abs(cc.y - y) < core.height / 2;
     });
-    snapped = false;
+    snapped = false; lastSnaps = 0;
     var n = onAssembly ? frontier(x, y) : fitAt(x, y);
-    if (btn) btn.textContent = snapped ? '✅ Snapped in! (Esc)' : !n ? '🎯 Click a gap or the assembly'
-      : '🎯 ' + n + ' candidates' + (onAssembly ? ' for ' + lastSlots + ' gaps' : '') + ' (Esc)';
+    if (!btn) return;
+    var rest = n ? n + ' candidates' + (onAssembly ? ' for ' + lastSlots + ' gaps' : '') : '';
+    btn.textContent = snapped ? '✅ ' + (onAssembly ? lastSnaps + ' snapped' : 'Snapped in!') + (rest ? ', ' + rest : '') + ' (Esc)'
+      : n ? '🎯 ' + rest + ' (Esc)' : '🎯 Click a gap or the assembly';
   }
 
   function setActive(on, button) {

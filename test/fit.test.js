@@ -60,11 +60,11 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
   const pair = P.join([35, 36], 1000, 800); // a small joined group right next to the assembly
   P.scatter(W, H);
   // Clicking the block's right edge only considers the slots around that point: a handful of candidates, not dozens.
-  const local = fit.frontier(1000 + 2 * CORE, 800 + CORE);
+  const local = fit.frontier(1000 + 2 * CORE, 800 + CORE, { snap: false });
   assert.ok(local >= 1 && local <= 15, `a few candidates for the nearby gaps, got ${local}`);
   fit.toggle(); fit.toggle();
   P.scatter(W, H);
-  const n = fit.frontier();
+  const n = fit.frontier(undefined, undefined, { snap: false });
   const movable = P.pieces.filter((p) => p.group !== mainGroup), near = movable.filter((p) => p.opacity === 1), far = movable.filter((p) => p.opacity < 1);
   assert.equal(near.length, n);
   assert.ok(n > local && n <= 36, `one to three candidates per slot over the whole rim, got ${n}`);
@@ -76,6 +76,19 @@ test('frontier gathers candidates for every slot at the rim and parks the rest o
   far.forEach((p) => assert.ok(dist(p) > 1.5 * CORE + 2 * cell, 'parked piece is outside the keep-out ring'));
   const touching = (a, b) => Math.abs(a.position.x - b.position.x) < a.width - 6 && Math.abs(a.position.y - b.position.y) < a.height - 6;
   far.forEach((p) => near.forEach((q) => assert.ok(!touching(p, q), 'parked piece never lands on a candidate')));
+});
+
+test('frontier keeps snapping outwards from the click until nothing fits any more', () => {
+  const P = makePuzzle({ rows: 5, cols: 5, seed: 6 }), { W, H } = P.install(2000, 1600);
+  const mainGroup = P.join([12, 13], 800, 700); // two pieces in the middle; every true piece is loose
+  P.scatter(W, H);
+  fit.frontier(800 + CORE, 700);
+  assert.ok(mainGroup.members.length >= 10, `greedy fill grew the assembly, now ${mainGroup.members.length} pieces`);
+  mainGroup.members.forEach((p) => {
+    const r = Math.floor((p.id - 1) / 5), c = (p.id - 1) % 5;
+    assert.ok(Math.abs(p.position.x - (800 + c * CORE)) < 1 && Math.abs(p.position.y - (700 + r * CORE)) < 1, `piece ${p.id} sits at its true spot`);
+  });
+  assert.ok(P.pieces.filter((p) => !p.group).every((p) => p.opacity === 1 || p.opacity < 1), 'no crash on the leftovers');
 });
 
 test('fit.at snaps the best candidate in when it truly fits, and never joins a wrong one', () => {
