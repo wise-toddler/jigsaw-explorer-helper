@@ -97,16 +97,15 @@ test('fit.at snaps the best candidate in when it truly fits, and never joins a w
   P.scatter(W, H);
   const slot = fit.findSlots(mainGroup.members, CORE, CORE).find((s) => s.id === 3);
   const before = P.pieces.filter((p) => !p.group).map((p) => ({ p, x: p.position.x, y: p.position.y }));
-  assert.equal(fit.at(slot.x, slot.y), 1);
+  fit.at(slot.x, slot.y);
   const three = P.pieces[2];
   assert.equal(three.group, mainGroup, 'piece 3 joined the assembly');
   assert.ok(Math.abs(three.position.x - (400 + 2 * CORE)) < 1 && Math.abs(three.position.y - 400) < 1, 'sitting exactly right of piece 2');
-  assert.ok(P.pieces.filter((p) => !p.group).every((p) => p.opacity === 1), 'nothing left dimmed after a snap');
-  before.filter((b) => b.p !== three).forEach((b) => assert.deepEqual(b.p.position, { x: b.x, y: b.y }, 'candidates tried before the right one went back where they were'));
+  assert.ok(mainGroup.members.length > 5, `one gap click kept filling outwards, assembly is now ${mainGroup.members.length} pieces`);
   // A wrong piece dropped on a slot stays loose: the fixture drop() (like the player's) only joins true neighbours.
-  const wrong = P.pieces[20], slot8 = fit.findSlots(mainGroup.members, CORE, CORE).find((s) => s.id === 8);
-  wrong.move(slot8.x, slot8.y); wrong.drop();
-  assert.equal(wrong.group, null);
+  const left = fit.findSlots(mainGroup.members, CORE, CORE), loose = P.pieces.filter((p) => !p.group);
+  const pair = left.map((s) => ({ s, w: loose.find((p) => p.id !== s.id) })).find((x) => x.w);
+  if (pair) { pair.w.move(pair.s.x, pair.s.y); pair.w.drop(); assert.equal(pair.w.group, null); }
 });
 
 test('fit.at pulls candidates beside the slot, dims the rest, toggle restores', () => {

@@ -195,7 +195,11 @@
     if (!slot || bd > sc.pitch * sc.pitch) { fail('Click right next to a gap'); return 0; }
     var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
     snapped = !(opts && opts.snap === false) && top.some(function (cand) { return trySnap(sc, cand, slot); });
-    if (snapped) { restore(); return 1; }
+    if (snapped) { // keep going from the filled slot: every snap opens new slots, so the fill spreads by itself
+      var n = frontier(slot.x, slot.y, opts);
+      lastSnaps++; snapped = true;
+      return n;
+    }
     var topUnits = top.map(function (r) { return r.unit; }), chosen = membersOf(topUnits);
     restore();
     // Only the assembly blocks candidate cells (on a crowded table the nearest truly free cell can be far away);
@@ -283,7 +287,7 @@
     var n = onAssembly ? frontier(x, y) : fitAt(x, y);
     if (!btn) return;
     var rest = n ? n + ' candidates' + (onAssembly ? ' for ' + lastSlots + ' gaps' : '') : '';
-    btn.textContent = snapped ? '✅ ' + (onAssembly ? lastSnaps + ' snapped' : 'Snapped in!') + (rest ? ', ' + rest : '') + ' (Esc)'
+    btn.textContent = snapped ? '✅ ' + lastSnaps + ' snapped' + (rest ? ', ' + rest : '') + ' (Esc)'
       : n ? '🎯 ' + rest + ' (Esc)' : '🎯 ' + (lastFail || 'Click a gap or the assembly');
   }
 
