@@ -166,17 +166,20 @@
   }
 
   // Put the candidate's entry piece exactly on the slot and let the player's own drop() decide: it only
-  // joins a true neighbour within snap distance, so a wrong guess just ends up lying beside the slot.
+  // joins a true neighbour within snap distance. A wrong guess is moved back to where it was.
   function trySnap(sc, cand, slot) {
-    var p = cand.piece, first = cand.unit.members[0], cc = coreCentre(p);
+    var p = cand.piece, first = cand.unit.members[0], cc = coreCentre(p), fx = first.position.x, fy = first.position.y;
     first.raise();
-    first.move(first.position.x + slot.x - cc.x, first.position.y + slot.y - cc.y);
+    first.move(fx + slot.x - cc.x, fy + slot.y - cc.y);
     if (p.drop) p.drop(false);
-    return !!p.group && p.group === sc.main[0].group;
+    if (p.group && p.group === sc.main[0].group) return true;
+    first.move(fx, fy);
+    return false;
   }
 
-  // Rank candidates for the slot nearest to canvas point (x, y). If the best one really fits it is snapped
-  // in (unless opts.snap === false); otherwise the best few are pulled next to the slot and the rest dimmed.
+  // Rank candidates for the slot nearest to canvas point (x, y). Each of the best few is tried on the slot in
+  // turn and snapped in if it really fits (unless opts.snap === false); otherwise they are pulled next to the
+  // slot and the rest dimmed.
   function fitAt(x, y, opts) {
     var sc = scene();
     if (!sc) return 0;
@@ -187,7 +190,7 @@
     });
     if (!slot || bd > sc.pitch * sc.pitch) { console.warn('jigexFit: click an empty spot right next to the assembly'); return 0; }
     var top = rankCandidates(slot, sc.units, sc.subj, sc.pz, sc.main).slice(0, TOP_N);
-    snapped = !!top.length && !(opts && opts.snap === false) && trySnap(sc, top[0], slot);
+    snapped = !(opts && opts.snap === false) && top.some(function (cand) { return trySnap(sc, cand, slot); });
     if (snapped) { restore(); return 1; }
     var topUnits = top.map(function (r) { return r.unit; }), chosen = membersOf(topUnits);
     restore();
